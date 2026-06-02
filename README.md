@@ -18,9 +18,15 @@ configured by hand on the box.
 | Valkey | Nextcloud cache | GHCR |
 
 > No image is pulled from Docker Hub. App services run as **rootless** Podman
-> Quadlets under the `nithin` user; Tailscale is the single rootful exception
-> (an exit node must program the host's routing/NAT, which needs real
+> Quadlets under a single app user (the login name comes from `APP_USER` in
+> [`config.env`](config.env), default `cld`); Tailscale is the single rootful
+> exception (an exit node must program the host's routing/NAT, which needs real
 > `NET_ADMIN`).
+
+> All deployment-specific values — domains, ACME email, the app user name,
+> static networking — live in one file, [`config.env`](config.env). They are
+> substituted into the baked configs at build time, so re-deploying for a
+> different host/person means editing that one file (and swapping the SSH key).
 
 ## Host design
 
@@ -33,8 +39,8 @@ configured by hand on the box.
   - a dedicated **2 TB disk** holds Nextcloud user data only. It is
     auto-formatted XFS (label `ncdata`) on first boot if unlabeled and mounted
     at `/var/mnt/nextcloud`.
-- **Access:** human admin `nithin` (wheel/sudo), **key-only SSH**, root account
-  locked, password auth disabled.
+- **Access:** human admin set by `APP_USER` in `config.env` (default `cld`,
+  wheel/sudo), **key-only SSH**, root account locked, password auth disabled.
 - **Updates:** [Renovate](.github/renovate.json) opens PRs to bump the base
   image, Quadlet `Image=` digests, and GitHub Actions.
 
@@ -45,20 +51,26 @@ baked into the image.
 ## Repository layout
 
 ```
+config.env                 # SINGLE source of truth for all customizations
 Containerfile              # bootc image build (FROM + runs build.sh)
 iso.toml                   # kickstart for ISO installs (disk selection, bootc switch)
 Justfile                   # local build/test recipes (just)
 files/
   scripts/                 # build-time scripts, run in numeric order by build.sh
+    00-config.sh           #   substitute config.env @@TOKENS@@ into baked files
     05-debloat.sh          #   strip server-irrelevant packages
     10-base.sh             #   base tweaks + enable storage units
     20-users.sh            #   lock root, subuid/subgid, perms
     90-signing.sh 91-* cleanup.sh   # template-provided, do not edit
-  system/                  # files copied verbatim into the image (/ root)
-    etc/containers/systemd/        # service Quadlets
-    etc/ssh/, etc/sudoers.d/       # SSH hardening + sudo
-    usr/lib/{sysusers,tmpfiles,sysctl}.d/   # declarative user/host config
-    usr/libexec/, usr/lib/systemd/system/   # storage auto-init
+  base/                    # 1) base OS + hardening    -> copied to / (in order)
+    etc/ssh/, etc/sudoers.d/, etc/motd.d/
+    usr/lib/{sysusers,tmpfiles,sysctl}.d/
+  services/                # 2) the service stack      -> copied to /
+    etc/caddy/, etc/headscale/, etc/nextcloud/
+    etc/containers/systemd/        # service Quadlets (incl. rootful tailscale)
+    etc/systemd/, usr/libexec/, usr/lib/systemd/system/   # units + storage init
+  optionals/               # 3) deploy-specific extras  -> copied to /
+    etc/NetworkManager/system-connections/   # static-IP profile (by MAC)
 .github/                   # CI: build container image + Renovate
 ```
 
@@ -73,7 +85,7 @@ just build            # build the container image with Podman
 just test-iso         # build a TEST installer ISO (boots the local image)
 just run-iso          # boot an installer ISO in QEMU (tests the kickstart)
 just run-disk         # boot the installed disk after run-iso finishes
-just ssh              # SSH into the running VM (nithin@127.0.0.1:2222)
+just ssh              # SSH into the running VM (<APP_USER>@127.0.0.1:2222)
 just stop             # stop the VM and clean up VM scratch
 just prod-iso         # build PRODUCTION VPS media (private GHCR ref + creds)
 just clean            # remove ./output build artifacts + Podman build cache
@@ -89,8 +101,9 @@ artifacts (writable OVMF vars, the 2 TB data disk, the console log) live under
 GitHub Actions ([`.github/workflows/`](.github/workflows/)) build and lint the
 image on push/PR via the AlmaLinux `atomic-ci` pipeline, verifying the upstream
 base signature with [`almalinux-bootc.pub`](almalinux-bootc.pub), then publish it
-to GHCR. Renovate runs on a schedule. Installer ISOs are built locally with
-`just test-iso` / `just prod-iso`, not in CI.
+to GHCR. Renovate runs on a schedule. A weekly cleanup workflow prunes old GHCR
+image versions, keeping the 3 most recent builds. Installer ISOs are built
+locally with `just test-iso` / `just prod-iso`, not in CI.
 
 ## Deploying / updating
 
@@ -105,8 +118,17 @@ bootc status              # show current deployment
 
 ## Customizing
 
-- Drop files to ship verbatim into [`files/system/`](files/system/) (paths and
-  permissions are preserved).
+- **First stop:** edit [`config.env`](config.env) — domains, ACME email, the
+  app user (`APP_USER`), Nextcloud admin/region, and static networking all live
+  there as a single source of truth. Build scripts substitute the `@@TOKEN@@`
+  placeholders in the baked files at build time, and the SSH key file is renamed
+  to match `APP_USER`. Swap your own public key in
+  [`files/base/etc/ssh/authorized_keys.d/`](files/base/etc/ssh/authorized_keys.d/).
+- Drop files to ship verbatim into one of the three trees by purpose:
+  [`files/base/`](files/base/) (OS + hardening),
+  [`files/services/`](files/services/) (the app stack), or
+  [`files/optionals/`](files/optionals/) (deploy-specific extras). Paths and
+  permissions are preserved; everything is copied to `/` in that order.
 - Add build steps as [`files/scripts/`](files/scripts/)`XX-name.sh` (run in
   numeric order). Do **not** edit `build.sh`, `cleanup.sh`, `90-signing.sh`, or
   `91-image-info.sh`.

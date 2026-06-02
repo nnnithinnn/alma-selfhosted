@@ -1,0 +1,55 @@
+# Headscale — self-hosted Tailscale control server (rootless, runs as the app user).
+#
+# Speaks plain HTTP on :8080 inside the shared `web` network; Caddy terminates
+# TLS for vpn.the app user.nl and reverse-proxies to headscale:8080 (Host header and
+# WebSocket upgrades pass through, covering the Noise /ts2021 and DERP paths).
+# Only the embedded DERP STUN listener (udp/3478) is published to the host.
+#
+# Config is baked read-only at /etc/headscale/config.yaml (labeled
+# container_file_t via files/scripts/15-selinux.sh); state lives in the rootless
+# named volume `headscale-data`.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=Headscale control server
+Documentation=https://headscale.net/
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/juanfont/headscale:v0.28.0@sha256:51b1b9182bb6219e97374fa89af6b9320d6f87ecc739e328d5357ea4fa7a5ce3
+# The image entrypoint is `headscale`; `serve` starts the control server.
+Exec=serve
+
+# Join the shared front-end network and expose a stable DNS alias so Caddy can
+# reach this container as `headscale:8080` (aardvark-dns).
+Network=web.network
+NetworkAlias=headscale
+
+# Embedded DERP STUN for NAT traversal. :8080 is intentionally NOT published —
+# only Caddy (on web.network) reaches it. DERP relay traffic rides HTTPS via
+# Caddy; only STUN needs a direct UDP path.
+PublishPort=3478:3478/udp
+
+# Persistent state (db.sqlite, auto-generated noise/DERP keys) as a rootless
+# named volume under the app user's /var home.
+Volume=headscale-data:/var/lib/headscale
+
+# Baked, read-only config. No :Z relabel (rootless can't relabel a root-owned
+# file); the SELinux policy labels /etc/headscale as container_file_t at deploy
+# time so the container (container_t) can read it directly.
+Volume=/etc/headscale/config.yaml:/etc/headscale/config.yaml:ro
+
+# Least privilege: no low ports are bound (8080/3478 are high), so drop all
+# capabilities.
+NoNewPrivileges=true
+DropCapability=ALL
+
+[Service]
+Restart=always
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

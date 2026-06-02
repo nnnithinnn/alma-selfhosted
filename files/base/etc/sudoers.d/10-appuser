@@ -1,0 +1,4 @@
+# The app user is the sole human admin. SSH is key-only and the account has no
+# password, so sudo cannot prompt for one -> grant passwordless sudo.
+# Tighten later (set a password + remove NOPASSWD) if you want a 2nd factor.
+@@APP_USER@@ ALL=(ALL) NOPASSWD: ALL

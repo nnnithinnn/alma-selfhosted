@@ -1,4 +1,5 @@
-# The `nithin` account and its SSH key are baked into the bootc image (20-users.sh),
+# The admin account (APP_USER from config.env) and its SSH key are baked into the
+# bootc image (20-users.sh),
 # so Anaconda has no users to manage. In cmdline/non-interactive mode its Users
 # module otherwise makes "Root password" and "User creation" mandatory spokes and
 # aborts the install. Disabling the module drops both spokes; root stays locked as
