@@ -1,0 +1,48 @@
+# Caddy — reverse proxy and TLS front door (rootless, runs as user `nithin`).
+#
+# Publishes :80 + :443 (rootless low-port bind via
+# net.ipv4.ip_unprivileged_port_start=80) and terminates TLS for the
+# vpn.nithin.nl (Headscale) and cld.nithin.nl (Nextcloud) vhosts. Certs come
+# from Let's Encrypt (HTTP-01); see files/system/etc/caddy/Caddyfile.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=Caddy reverse proxy
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=public.ecr.aws/docker/library/caddy:2.11.3-alpine@sha256:3739ea4f0c877259a693d932693cf8f3408e9a9497c004f031b0e830e93e1546
+Network=web.network
+
+# Public front door: :80 for the ACME HTTP-01 challenge + HTTP->HTTPS
+# redirect, :443 for HTTPS (vpn./cld. vhosts). Rootless low-port bind is
+# allowed by net.ipv4.ip_unprivileged_port_start=80; NET_BIND_SERVICE (below)
+# lets Caddy bind them inside the container.
+PublishPort=80:80
+PublishPort=443:443
+
+# Persistent state as rootless named volumes (live under nithin's /var home).
+Volume=caddy-data:/data
+Volume=caddy-config:/config
+
+# Baked, read-only config. No :Z relabel: a rootless user can't relabel a
+# root-owned file. Instead the SELinux policy labels /etc/caddy as
+# container_file_t at deploy time (see files/scripts/15-selinux.sh), so the
+# container (container_t) can read it directly.
+Volume=/etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+# Least privilege: drop everything, re-add only the bind-low-port capability
+# that Caddy needs to listen on :80 inside the container.
+NoNewPrivileges=true
+DropCapability=ALL
+AddCapability=NET_BIND_SERVICE
+
+[Service]
+Restart=always
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

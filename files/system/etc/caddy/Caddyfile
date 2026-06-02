@@ -1,0 +1,66 @@
+# Caddy — TLS edge / reverse proxy (rootless, runs as user `nithin`).
+#
+# Terminates HTTPS for the public services and routes by hostname:
+#   - vpn.nithin.nl -> Headscale control server (+ embedded DERP over HTTPS)
+#   - cld.nithin.nl -> Nextcloud
+#
+# Certificates: Let's Encrypt via the HTTP-01 challenge (port 80). We force
+# HTTP-01 by disabling the TLS-ALPN challenge. Currently pinned to the LE
+# *staging* CA (untrusted certs) until the deployment is verified end to end;
+# switch `acme_ca`/`dir` to the production endpoint to go live.
+#
+# NOTE: the headscale/nextcloud upstreams are resolved lazily via aardvark-dns
+# on the `web` network, so Caddy starts fine before those backends exist; the
+# affected vhost just returns 502 until its container is up.
+
+{
+	# ACME account contact (expiry notices / recovery).
+	email hi@nithin.nl
+
+	# Let's Encrypt *staging* — untrusted certs, high rate limits, for testing.
+	# Production: https://acme-v02.api.letsencrypt.org/directory
+	acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# Shared TLS policy: Let's Encrypt staging via HTTP-01 only.
+(http01_staging) {
+	tls {
+		issuer acme {
+			dir https://acme-staging-v02.api.letsencrypt.org/directory
+			email hi@nithin.nl
+			# Force the HTTP-01 challenge (served on :80) by turning off the
+			# TLS-ALPN challenge. (No DNS challenge configured.)
+			disable_tlsalpn_challenge
+		}
+	}
+}
+
+# Headscale control server + embedded DERP relay (WebSockets handled
+# automatically by reverse_proxy). Backend lands in the headscale phase.
+vpn.nithin.nl {
+	import http01_staging
+	reverse_proxy headscale:8080
+}
+
+# Nextcloud. Backend (app + DB + Valkey) lands in the nextcloud phase.
+cld.nithin.nl {
+	import http01_staging
+
+	# Service-discovery shortcuts: DAV clients probe /.well-known/{caldav,carddav}
+	# at the domain root; redirect them to Nextcloud's DAV endpoint (also clears
+	# the corresponding admin setup warning).
+	redir /.well-known/carddav /remote.php/dav/ 301
+	redir /.well-known/caldav /remote.php/dav/ 301
+
+	# High Performance Backend (notify_push): the push server runs as a sidecar
+	# on :7867. handle_path strips the /push prefix so the server sees /ws etc.
+	# at its root. WebSocket upgrades are handled automatically by reverse_proxy.
+	handle_path /push/* {
+		reverse_proxy notify-push:7867
+	}
+
+	# Everything else -> the Nextcloud app server.
+	handle {
+		reverse_proxy nextcloud:80
+	}
+}
