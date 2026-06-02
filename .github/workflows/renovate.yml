@@ -3,7 +3,7 @@
 #
 # Renovate replaces Dependabot for this repo. Its native managers cover, in one tool:
 #   - dockerfile     -> the bootc base `FROM ...@sha256:...` in Containerfile
-#   - quadlet        -> the `Image=` lines in files/system/**/*.container
+#   - quadlet        -> the `Image=` lines in files/services/**/*.container
 #   - github-actions -> `uses:` pins in these workflows
 #
 # Requires a repository secret RENOVATE_TOKEN:

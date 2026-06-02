@@ -16,6 +16,10 @@ containerfile := "Containerfile"
 variant      := ""
 iso_config   := "iso.toml"
 
+# Login name baked into the image (read from config.env's APP_USER), used by the
+# `ssh` recipe to log into the test VM.
+app_user     := `sed -n 's/^APP_USER=//p' config.env | head -1`
+
 # Remote image the INSTALLED system should track for `bootc upgrade`. Empty for
 # local testing (the box just boots the locally built image, no remote switch).
 # Set it to build production install media; the `prod-iso` recipe wires this up
@@ -231,7 +235,7 @@ run-disk:
 # SSH into the running VM (clears the stale host key first).
 ssh:
     ssh-keygen -R '[127.0.0.1]:2222' >/dev/null 2>&1 || true
-    ssh -p 2222 -l nithin 127.0.0.1
+    ssh -p 2222 -l {{app_user}} 127.0.0.1
 
 # Stop the running VM and remove the VM scratch dir (output/vm).
 stop:

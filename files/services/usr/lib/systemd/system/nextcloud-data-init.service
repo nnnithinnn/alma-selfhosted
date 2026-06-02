@@ -1,0 +1,18 @@
+[Unit]
+Description=Initialize Nextcloud data disk (auto-format if unlabeled)
+Documentation=https://github.com/the app user-sv-23469/alma-selfhosted
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs-pre.target
+Wants=systemd-udev-settle.service
+Before=var-mnt-nextcloud.mount local-fs.target shutdown.target
+Conflicts=shutdown.target
+# Skip entirely (fast path) once the labelled filesystem exists.
+ConditionPathExists=!/dev/disk/by-label/ncdata
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nextcloud-data-init.sh
+
+[Install]
+WantedBy=local-fs.target

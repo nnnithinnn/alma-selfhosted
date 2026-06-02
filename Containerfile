@@ -1,9 +1,18 @@
 # Allow build scripts to be referenced without being copied into the final image
 FROM scratch AS ctx
 
-COPY files/system /system_files/
+# Three filesystem trees, copied onto / in order by build.sh:
+#   base/      -> base OS + hardening
+#   services/  -> the self-hosted service stack
+#   optionals/ -> deploy-specific extras (e.g. static networking)
+COPY files/base /base_files/
+COPY files/services /services_files/
+COPY files/optionals /optionals_files/
 COPY --chmod=0755 files/scripts /build_files/
 COPY *.pub /keys/
+# Single source of truth for all user customizations (domains, email, app user,
+# networking). Sourced by build.sh; tokens substituted by 00-config.sh.
+COPY config.env /config.env
 
 # Base Image
 FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:eccf266e41918acad24963e0cb866b9f58f476482d10a92d9fbc6cdd6e5e451b

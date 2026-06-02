@@ -1,0 +1,43 @@
+# Prune old container image versions from GHCR, keeping only the most recent
+# builds. The publish pipeline (build.yml) creates a multi-arch manifest, so we
+# use a manifest-aware cleaner: keeping the newest tagged builds and removing
+# older ones together with any now-untagged/partial child manifests. The newest
+# build always carries the floating tags (latest, main, 10, 10.2), so `latest`
+# — which `bootc upgrade` pulls — is inherently protected by keep-n-tagged.
+name: Cleanup image versions
+
+on:
+  schedule:
+    # Sundays at 04:00 UTC.
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting"
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old image versions (keep newest 3 builds)
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: alma-selfhosted
+          # Keep the 3 most recent tagged builds (each with all its tags).
+          keep-n-tagged: 3
+          # Remove dangling/untagged and partial multi-arch manifests too.
+          delete-untagged: true
+          delete-partial-images: true
+          # Fail if the registry would be left in an inconsistent state.
+          validate: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          token: ${{ secrets.GITHUB_TOKEN }}
