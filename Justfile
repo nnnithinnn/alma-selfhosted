@@ -1,8 +1,16 @@
 # alma-selfhosted — local build & test tasks.
 #
 # Build the bootc container image with Podman, turn it into a test or production
-# installer ISO with bootc-image-builder, and boot/test it in QEMU. Most recipes
-# use sudo (rootful podman / qemu + KVM).
+# installer ISO with bootc-image-builder, and boot/test it in QEMU.
+#
+# Fully rootless: no recipe uses sudo. `build` writes to the rootless container
+# store (~/.local/share/containers/storage); bootc-image-builder runs in its
+# experimental rootless `--in-vm` mode (a tiny KVM VM inside the container does
+# the privileged disk work) and reads that same rootless store; QEMU runs
+# unprivileged. This requires KVM access — your user must be in the `kvm` group
+# (one-time: `sudo usermod -aG kvm $USER`, then re-login). Everything else
+# (podman build, store prune, scratch cleanup) is rootless because the artifacts
+# and the container store are owned by you.
 #
 # All ephemeral VM artifacts (writable OVMF vars, the 2 TB Nextcloud data disk,
 # the serial console log) live under ./output/vm so nothing outside the current
@@ -68,9 +76,10 @@ default:
 
 # Uses the layer cache; run `just clean` first to force a fully fresh build.
 
-# Build the bootc container image with Podman.
+# Build the bootc container image with Podman (rootless; lands in your
+# ~/.local/share/containers/storage store so the rootless _bib can read it).
 build:
-    sudo podman build \
+    podman build \
         --network=host \
         --security-opt=label=disable \
         --cap-add=all \
@@ -85,17 +94,17 @@ build:
 # Remove all build outputs (./output, incl. VM scratch) and the Podman build cache.
 clean:
     # Stop any running test VM first so it releases open files under ./output.
-    sudo pkill -f OVMF_VARS_test.fd || true
+    pkill -f OVMF_VARS_test.fd || true
     sleep 1
     # Remove all build outputs (iso / raw + VM scratch).
-    sudo rm -rf ./{{output}}
+    rm -rf ./{{output}}
     # Drop the locally built image plus any dangling layers and build cache, so
     # the next build is fully fresh (avoids the stale-layer trap where newly
     # added files are not picked up). The digest-pinned base and the
     # bootc-image-builder image are kept (immutable, expensive to re-pull).
-    sudo podman rmi -f {{image}} 2>/dev/null || true
-    sudo podman image prune -f
-    sudo podman builder prune -f
+    podman rmi -f {{image}} 2>/dev/null || true
+    podman image prune -f
+    podman builder prune -f
     # Clear the stale SSH host key for the test VM.
     ssh-keygen -R '[127.0.0.1]:2222' >/dev/null 2>&1 || true
 
@@ -103,7 +112,7 @@ clean:
 _bib:
     #!/usr/bin/env bash
     set -euo pipefail
-    sudo rm -rf ./{{output}}
+    rm -rf ./{{output}}
     mkdir -p ./{{output}}
     cp {{iso_config}} ./{{output}}/config.toml
     CFG=./{{output}}/config.toml
@@ -140,14 +149,24 @@ _bib:
         sed -i '/# <REGISTRY_AUTH_POST>/d' "$CFG"
         echo "No {{registry_auth}}; building without private-registry credentials."
     fi
-    sudo podman run \
+    # Rootless build: no sudo. bootc-image-builder runs in its experimental
+    # `--in-vm` mode, which spins a short-lived KVM VM inside the container to do
+    # the privileged disk work (loopback mounts, partitioning) that a rootless
+    # user namespace can't. It reads the source image from YOUR rootless store
+    # (~/.local/share/containers/storage), so `just build` must have run first.
+    # `--privileged` here is rootless-bounded (only grants caps you already hold)
+    # and KVM access comes from your `kvm` group membership. `--chown` hands the
+    # output back to you so the rest of the pipeline needs no root.
+    podman run \
         --rm -it --privileged --pull=newer \
         --network=host \
         --security-opt label=type:unconfined_t \
         -v ./{{output}}:/output \
         -v ./{{output}}/config.toml:/config.toml:ro \
-        -v /var/lib/containers/storage:/var/lib/containers/storage \
+        -v ${HOME}/.local/share/containers/storage:/var/lib/containers/storage \
         {{bib_image}} \
+        --in-vm \
+        --chown $(id -u):$(id -g) \
         --type iso \
         --use-librepo=False \
         --progress verbose \
@@ -185,17 +204,17 @@ data-disk:
 run-iso:
     #!/usr/bin/env bash
     set -euo pipefail
-    sudo pkill -f OVMF_VARS_test.fd || true
+    pkill -f OVMF_VARS_test.fd || true
     sleep 1
     mkdir -p {{vm_dir}}
-    sudo rm -f {{vm_dir}}/OVMF_VARS_test.fd {{raw_disk}}
+    rm -f {{vm_dir}}/OVMF_VARS_test.fd {{raw_disk}}
     cp {{ovmf_vars_src}} {{vm_dir}}/OVMF_VARS_test.fd
     qemu-img create -f raw {{raw_disk}} 20G
     [ -f {{vm_dir}}/ncdata.qcow2 ] || qemu-img create -f qcow2 {{vm_dir}}/ncdata.qcow2 2T
     echo "Anaconda boots over VNC on {{vnc_bind}}:5900. Watch from your laptop with:"
     echo "    remote-viewer vnc://<this-host>:5900   # e.g. vnc://10.0.0.2:5900"
     echo "After install the ISO is ejected and the VM reboots into the installed system; verify with: just ssh"
-    sudo qemu-system-x86_64 \
+    qemu-system-x86_64 \
         -m 6144 -smp 4,sockets=1,cores=2,threads=2 \
         -enable-kvm -cpu host -machine q35 \
         -drive if=pflash,format=raw,readonly=on,file={{ovmf_code}} \
@@ -214,13 +233,13 @@ run-iso:
 run-disk:
     #!/usr/bin/env bash
     set -euo pipefail
-    sudo pkill -f OVMF_VARS_test.fd || true
+    pkill -f OVMF_VARS_test.fd || true
     sleep 1
     mkdir -p {{vm_dir}}
     [ -f {{vm_dir}}/OVMF_VARS_test.fd ] || cp {{ovmf_vars_src}} {{vm_dir}}/OVMF_VARS_test.fd
     [ -f {{vm_dir}}/ncdata.qcow2 ] || qemu-img create -f qcow2 {{vm_dir}}/ncdata.qcow2 2T
     echo "Booting installed disk. SSH: just ssh | VNC: remote-viewer vnc://<this-host>:5900"
-    sudo qemu-system-x86_64 \
+    qemu-system-x86_64 \
         -m 6144 -smp 4,sockets=1,cores=2,threads=2 \
         -enable-kvm -cpu host -machine q35 \
         -drive if=pflash,format=raw,readonly=on,file={{ovmf_code}} \
@@ -239,5 +258,5 @@ ssh:
 
 # Stop the running VM and remove the VM scratch dir (output/vm).
 stop:
-    sudo pkill -f OVMF_VARS_test.fd || true
-    sudo rm -rf {{vm_dir}}
+    pkill -f OVMF_VARS_test.fd || true
+    rm -rf {{vm_dir}}
