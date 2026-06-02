@@ -1,0 +1,55 @@
+# Nextcloud notify_push — High Performance Backend / Client Push (rootless).
+#
+# Runs the Rust push server that ships INSIDE the `notify_push` app (installed
+# from the app store by nextcloud-apps-init.service). It holds open WebSocket
+# connections to clients and pushes change notifications, replacing constant
+# polling — a big CPU/latency win.
+#
+# Networks:
+#   - web  -> Caddy proxies `/push/*` to `notify-push:7867`.
+#   - data -> it connects to the SAME Postgres and Valkey as the app (to read
+#     sessions and subscribe to the update pub/sub stream).
+#
+# It reads everything (DB DSN, Redis/Valkey, instance URL) from the app's own
+# config.php, mounted read-only via the shared `nextcloud-html` volume. No
+# secrets are needed here: the credentials already live in config.php (written
+# by the app entrypoint from the *_FILE secrets).
+#
+# The push binary only exists AFTER the app is installed, so on a fresh first
+# boot this unit will fail-and-restart until nextcloud-apps-init has installed
+# `notify_push`; Restart=always makes that self-healing.
+#
+# Uses the same digest-pinned Nextcloud image as nextcloud.container.
+
+[Unit]
+Description=Nextcloud notify_push (High Performance Backend)
+Documentation=https://github.com/nextcloud/notify_push
+After=network-online.target
+Wants=network-online.target
+# Needs the app code (config.php + the push binary) to exist first.
+Requires=nextcloud.service
+After=nextcloud.service nextcloud-apps-init.service
+
+[Container]
+Image=public.ecr.aws/docker/library/nextcloud:33.0.4-apache@sha256:caa40b8beaf0057ac213d8dfc515c36ce64f7a8f0825b6a287e6f7cf2f4a095d
+
+# Front-end (Caddy reaches :7867) + isolated back-end (DB/Valkey). No PublishPort.
+Network=web.network
+Network=data.network
+NetworkAlias=notify-push
+
+# Shared app code/config, read-only — the push server only reads config.php.
+Volume=nextcloud-html:/var/www/html:ro
+
+# Run the bundled push server against the app's live config (auto-derives DB,
+# Valkey and the instance URL). Listens on :7867 (the default).
+Exec=/var/www/html/custom_apps/notify_push/bin/x86_64/notify_push /var/www/html/config/config.php
+
+[Service]
+Restart=always
+# Tolerate restart churn on first boot until the app is installed.
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

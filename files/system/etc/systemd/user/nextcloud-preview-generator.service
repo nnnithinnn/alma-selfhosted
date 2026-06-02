@@ -1,0 +1,25 @@
+# nextcloud-preview-generator — periodically pre-generate file previews.
+#
+# USER unit. The preview_generator app (installed by nextcloud-apps-init) tracks
+# which files changed; `occ preview:pre-generate` renders previews for those in
+# the background so the web UI/gallery never blocks generating them on demand
+# (heavy previews are offloaded to the imaginary backend).
+#
+# We deliberately do NOT run the one-off `occ preview:generate-all` (it would
+# render previews for every existing file at once). pre-generate only handles
+# the delta tracked by the app.
+#
+# Driven by nextcloud-preview-generator.timer.
+
+[Unit]
+Description=Nextcloud preview pre-generation
+Documentation=https://github.com/nextcloud/previewgenerator
+After=nextcloud.service
+Wants=nextcloud.service
+
+[Service]
+Type=oneshot
+# Render previews for files the app has flagged as new/changed. Tolerate the
+# app not being installed yet (first boots) without failing the unit.
+ExecStart=/usr/bin/podman exec --user www-data systemd-nextcloud php occ preview:pre-generate
+SuccessExitStatus=0 1

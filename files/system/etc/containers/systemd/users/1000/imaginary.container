@@ -1,0 +1,38 @@
+# Imaginary — image preview/thumbnail backend for Nextcloud (rootless, as `nithin`).
+#
+# Nextcloud offloads heavy image preview generation (JPEG/PNG/WebP/HEIC/TIFF…)
+# to this service instead of doing it in PHP. It lives ONLY on the isolated
+# `data` network (Internal=true): Nextcloud reaches it as `imaginary:9000` via
+# `preview_imaginary_url`. Never published to the host, never on the web tier.
+#
+# This is the Nextcloud-maintained build (the upstream h2non/imaginary is stale
+# and Docker-Hub-only). The entrypoint (/start.sh) already launches imaginary
+# with the required `-return-size` flag; PORT defaults to 9000 and the image
+# ships its own HEALTHCHECK (/healthcheck.sh), which podman inherits.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=Imaginary (Nextcloud preview backend)
+Documentation=https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/server_tuning.html
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/nextcloud-releases/aio-imaginary@sha256:976a469dc8b93c30963bc45113bbddfd4d4c94d5bc2b96c4918ea3e100a5493f
+
+# Isolated back-end network only. No PublishPort: never exposed to the host.
+Network=data.network
+NetworkAlias=imaginary
+
+# HEIC/HEIF preview generation in a container needs CAP_SYS_NICE (per the
+# Nextcloud admin docs). Harmless where the rootless userns can't grant it.
+AddCapability=SYS_NICE
+
+[Service]
+Restart=always
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
