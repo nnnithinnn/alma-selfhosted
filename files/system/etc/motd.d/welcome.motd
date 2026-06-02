@@ -1,0 +1,5 @@
+AlmaLinux 10 (bootc) — self-hosted services host
+
+  Immutable image-mode OS: the root filesystem is read-only and managed by
+  bootc. Only /var persists across updates; changes elsewhere are reset on
+  the next `bootc upgrade`. Put state and secrets under /var.
