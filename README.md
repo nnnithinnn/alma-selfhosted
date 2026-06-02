@@ -101,9 +101,12 @@ artifacts (writable OVMF vars, the 2 TB data disk, the console log) live under
 GitHub Actions ([`.github/workflows/`](.github/workflows/)) build and lint the
 image on push/PR via the AlmaLinux `atomic-ci` pipeline, verifying the upstream
 base signature with [`almalinux-bootc.pub`](almalinux-bootc.pub), then publish it
-to GHCR. Renovate runs on a schedule. A weekly cleanup workflow prunes old GHCR
-image versions, keeping the 3 most recent builds. Installer ISOs are built
-locally with `just test-iso` / `just prod-iso`, not in CI.
+to GHCR. Renovate runs on a schedule. Published main images are tagged
+`latest` (the rolling pointer `bootc` tracks), an immutable respin version
+(`10.2.YYYYMMDD.N`), and an immutable `sha-<commit>`. A cleanup workflow runs
+after each main build (and weekly) to keep the 3 most recent builds and prune
+the transient PR/per-arch tags. Installer ISOs are built locally with
+`just test-iso` / `just prod-iso`, not in CI.
 
 ## Deploying / updating
 
