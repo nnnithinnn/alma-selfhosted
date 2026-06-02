@@ -74,6 +74,32 @@ files/
 .github/                   # CI: build container image + Renovate
 ```
 
+## Configuration (`config.env`)
+
+[`config.env`](config.env) is the **single source of truth** for every
+deployment-specific value. `build.sh` sources it and `00-config.sh` substitutes
+the `@@TOKEN@@` placeholders found in `files/{base,services,optionals}` at build
+time — so re-deploying for a different host/person means editing this one file
+(and swapping the SSH public key). Format is `KEY=value` (no spaces around `=`);
+quote any value containing shell metacharacters such as `;` (the DNS lists).
+
+| Section | Variable | Purpose | Default |
+|---------|----------|---------|---------|
+| **Identity** | `APP_USER` | Login / sudo / SSH-key owner + rootless Podman namespace owner (Quadlet dir is keyed by UID 1000). By convention the same as the Nextcloud subdomain. | `cld` |
+| | `NEXTCLOUD_ADMIN_USER` | Nextcloud's initial web admin account (first-run only). | `cld` |
+| **Domains** | `DOMAIN` | Base domain (reference only; hosts below are fully qualified). | `nithin.nl` |
+| | `HEADSCALE_HOST` | Headscale control server FQDN (Caddy terminates TLS). | `vpn.nithin.nl` |
+| | `NEXTCLOUD_HOST` | Nextcloud public FQDN. | `cld.nithin.nl` |
+| | `MAGICDNS_BASE_DOMAIN` | Headscale MagicDNS base domain — **must differ** from `HEADSCALE_HOST`'s domain. | `mesh.nithin.nl` |
+| | `ACME_EMAIL` | Let's Encrypt account contact (expiry/recovery notices). | `hi@nithin.nl` |
+| **Nextcloud** | `NEXTCLOUD_PHONE_REGION` | Default region for parsing phone numbers (ISO 3166-1 alpha-2). | `IN` |
+| | `WEB_SUBNET` | Pinned subnet for the rootless `web` network; trusted as `TRUSTED_PROXIES`. | `10.10.10.0/24` |
+| **Static networking** | `NET_MAC` | NIC MAC the static-IP profile binds to (so it only activates on the real VPS; QEMU keeps DHCP). | — |
+| (`files/optionals`) | `NET_IPV4_CIDR` / `NET_IPV4_ADDR` / `NET_IPV4_GATEWAY` | IPv4 address (CIDR + bare), gateway — **mandatory** (host unreachable if it fails). | — |
+| | `NET_IPV4_DNS` | Quoted, `;`-separated IPv4 resolvers. | `"1.1.1.1;9.9.9.9;"` |
+| | `NET_IPV6_ADDR` / `NET_IPV6_1..4` / `NET_IPV6_GATEWAY` | Primary IPv6 + all four assigned addresses + gateway (best-effort; gateway sits in a different `/64`). | — |
+| | `NET_IPV6_DNS` | Quoted, `;`-separated IPv6 resolvers. | `"2606:4700:4700::1111;2620:fe::fe;"` |
+
 ## Building & testing locally
 
 Requires [`just`](https://github.com/casey/just), `podman` (and
@@ -118,11 +144,11 @@ bootc status              # show current deployment
 
 ## Customizing
 
-- **First stop:** edit [`config.env`](config.env) — domains, ACME email, the
-  app user (`APP_USER`), Nextcloud admin/region, and static networking all live
-  there as a single source of truth. Build scripts substitute the `@@TOKEN@@`
-  placeholders in the baked files at build time, and the SSH key file is renamed
-  to match `APP_USER`. Swap your own public key in
+- **First stop:** edit [`config.env`](config.env) — see the
+  [Configuration](#configuration-configenv) section above for every variable.
+  Build scripts substitute the `@@TOKEN@@` placeholders in the baked files at
+  build time, and the SSH key file is renamed to match `APP_USER`. Swap your own
+  public key in
   [`files/base/etc/ssh/authorized_keys.d/`](files/base/etc/ssh/authorized_keys.d/).
 - Drop files to ship verbatim into one of the three trees by purpose:
   [`files/base/`](files/base/) (OS + hardening),
