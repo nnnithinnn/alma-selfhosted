@@ -1,0 +1,44 @@
+# NetworkManager static-IP profile for the GreenCloud VPS.
+#
+# Bound to the VPS NIC by MAC address, so it activates ONLY on that host and
+# never on other machines (e.g. local QEMU test VMs, which have a different
+# MAC and keep using DHCP). NM ignores this file unless it is mode 0600 — the
+# build enforces that (see files/scripts/25-network.sh).
+#
+# IPv4 is mandatory (may-fail=false): if it can't come up the host would be
+# unreachable, so we fail loudly. IPv6 is best-effort (may-fail=true) so an
+# incorrect prefix/gateway can't block the whole connection and lock us out of
+# IPv4/SSH.
+#
+# ASSUMPTIONS to verify on first deploy (cannot be tested in QEMU):
+#   - IPv4 prefix /24 (gateway 96.9.231.1 is .1 of the .123 subnet).
+#   - IPv6 prefix /64. NOTE the gateway 2a11:8083:11::1 is in a different /64
+#     than the host addresses (…:169a::/64); if GreenCloud routes these
+#     on-link via a wider prefix, widen the prefix (e.g. /48) or add a route.
+#   - DNS uses Cloudflare + Quad9; change if you prefer the provider resolvers.
+
+[connection]
+id=vps-static
+type=ethernet
+autoconnect=true
+autoconnect-priority=100
+
+[ethernet]
+mac-address=00:3B:DB:95:9F:7F
+
+[ipv4]
+method=manual
+address1=96.9.231.123/24
+gateway=96.9.231.1
+dns=1.1.1.1;9.9.9.9;
+may-fail=false
+
+[ipv6]
+method=manual
+address1=2a11:8083:11:169a::a/64
+address2=2a11:8083:11:169a::b/64
+address3=2a11:8083:11:169a::c/64
+address4=2a11:8083:11:169a::d/64
+gateway=2a11:8083:11::1
+dns=2606:4700:4700::1111;2620:fe::fe;
+may-fail=true
