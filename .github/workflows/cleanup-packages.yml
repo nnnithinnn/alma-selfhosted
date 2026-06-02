@@ -2,11 +2,21 @@
 # builds. The publish pipeline (build.yml) creates a multi-arch manifest, so we
 # use a manifest-aware cleaner: keeping the newest tagged builds and removing
 # older ones together with any now-untagged/partial child manifests. The newest
-# build always carries the floating tags (latest, main, 10, 10.2), so `latest`
-# — which `bootc upgrade` pulls — is inherently protected by keep-n-tagged.
+# build always carries the floating tags (latest, main), so `latest` — which
+# `bootc upgrade` pulls — is inherently protected by keep-n-tagged.
+#
+# Runs right after each successful main build (workflow_run) to clear PR/arch
+# noise (pr-*, *_merge, *-amd64, untagged) within minutes, plus a weekly cron as
+# a safety net. Manual dispatch defaults to a dry run for inspection.
 name: Cleanup image versions
 
 on:
+  workflow_run:
+    workflows: ["Build image"]
+    types:
+      - completed
+    branches:
+      - main
   schedule:
     # Sundays at 04:00 UTC.
     - cron: "0 4 * * 0"
@@ -27,6 +37,8 @@ concurrency:
 jobs:
   prune:
     runs-on: ubuntu-latest
+    # On workflow_run, only prune after a build that actually succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Delete old image versions (keep newest 3 builds)
         uses: dataaxiom/ghcr-cleanup-action@v1

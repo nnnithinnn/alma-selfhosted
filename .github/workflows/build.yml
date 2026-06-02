@@ -92,10 +92,16 @@ jobs:
     with:
       image: ${{ needs.build-image.outputs.image-ref }}
       digest: ${{ needs.build-image.outputs.digest }}
+      # Clean respin scheme. The per-arch build already pushes an immutable
+      # sha-<commit> tag for every build, so the rolling pointer + the immutable
+      # respin version are all we promote here:
+      #   - latest                  -> rolling pointer bootc tracks
+      #   - 10.2.YYYYMMDD.N (version)-> immutable respin (RHEL ver + date + seq)
+      # The floating major/minor tags (10, 10.2) are intentionally NOT published:
+      # they only track the base OS, not this image's app stack, and reading them
+      # as "version 10" is misleading.
       tag: |
         ${{ needs.set-env.outputs.LATEST_TAG }}
-        ${{ needs.build-image.outputs.major-version }}
-        ${{ needs.build-image.outputs.redhat-version-id }}
         ${{ needs.build-image.outputs.version }}
       REGISTRY: ${{ needs.set-env.outputs.REGISTRY }}
       REGISTRY_USER: ${{ needs.set-env.outputs.REGISTRY_USER }}
