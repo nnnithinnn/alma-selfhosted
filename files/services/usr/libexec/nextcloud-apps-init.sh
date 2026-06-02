@@ -26,6 +26,7 @@ APPS=(
 	mail               # PIM
 	tasks              # PIM
 	notes              # PIM
+	richdocuments      # Nextcloud Office (Collabora Online / CODE frontend)
 )
 
 log() { echo "nextcloud-apps-init: $*"; }
@@ -82,6 +83,21 @@ done
 if printf '%s' "$enabled" | grep -q '"notify_push"' || occ app:list --output=json 2>/dev/null | grep -q '"notify_push"'; then
 	occ config:app:set notify_push base_endpoint --value 'https://@@NEXTCLOUD_HOST@@/push' || \
 		log "WARNING: could not set notify_push base_endpoint (will retry next boot)."
+fi
+
+# richdocuments (Nextcloud Office): point it at the Collabora CODE backend. With
+# the same-domain layout, Collabora is reachable at the Nextcloud host itself
+# (Caddy routes the COOL paths), so the WOPI URL is just the public base URL.
+# wopi_allowlist restricts which hosts may issue WOPI callbacks to Collabora's
+# container network (the pinned web subnet). The live discovery handshake only
+# succeeds once a real cert/DNS exists, so this is validated at VPS cutover.
+if printf '%s' "$enabled" | grep -q '"richdocuments"' || occ app:list --output=json 2>/dev/null | grep -q '"richdocuments"'; then
+	occ config:app:set richdocuments wopi_url        --value 'https://@@NEXTCLOUD_HOST@@' || \
+		log "WARNING: could not set richdocuments wopi_url (will retry next boot)."
+	occ config:app:set richdocuments public_wopi_url --value 'https://@@NEXTCLOUD_HOST@@' || \
+		log "WARNING: could not set richdocuments public_wopi_url (will retry next boot)."
+	occ config:app:set richdocuments wopi_allowlist  --value '@@WEB_SUBNET@@' || \
+		log "WARNING: could not set richdocuments wopi_allowlist (will retry next boot)."
 fi
 
 log "done."

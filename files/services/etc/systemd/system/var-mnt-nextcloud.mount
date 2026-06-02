@@ -1,6 +1,6 @@
 [Unit]
 Description=Nextcloud data disk (2 TB)
-Documentation=https://github.com/the app user-sv-23469/alma-selfhosted
+Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
 After=nextcloud-data-init.service
 Wants=nextcloud-data-init.service
 
