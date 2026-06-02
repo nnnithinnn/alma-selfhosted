@@ -14,14 +14,19 @@ configured by hand on the box.
 | Headscale | Self-hosted Tailscale control server (`vpn.nithin.nl`) | GHCR |
 | Tailscale | Tailnet member **+ exit node** | GHCR |
 | Nextcloud | File sync/share (`cld.nithin.nl`, public) | AWS ECR Public |
+| Collabora | In-browser office / document editing (same domain) | Docker Hub¹ |
 | PostgreSQL | Nextcloud database | AWS ECR Public |
 | Valkey | Nextcloud cache | GHCR |
 
-> No image is pulled from Docker Hub. App services run as **rootless** Podman
-> Quadlets under a single app user (the login name comes from `APP_USER` in
-> [`config.env`](config.env), default `cld`); Tailscale is the single rootful
-> exception (an exit node must program the host's routing/NAT, which needs real
-> `NET_ADMIN`).
+> ¹ Collabora Online (CODE) is the **single, documented Docker Hub exception** —
+> upstream publishes it only there. It is pulled anonymously and digest-pinned
+> (auto-bumped by Renovate), giving the same supply-chain guarantee as a mirror.
+
+> Apart from the single Collabora exception noted above, no image is pulled from
+> Docker Hub. App services run as **rootless** Podman Quadlets under a single app
+> user (the login name comes from `APP_USER` in [`config.env`](config.env),
+> default `cld`); Tailscale is the single rootful exception (an exit node must
+> program the host's routing/NAT, which needs real `NET_ADMIN`).
 
 > All deployment-specific values — domains, ACME email, the app user name,
 > static networking — live in one file, [`config.env`](config.env). They are

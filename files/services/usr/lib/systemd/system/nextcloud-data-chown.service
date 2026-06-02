@@ -1,6 +1,6 @@
 [Unit]
 Description=Fix ownership of the Nextcloud data disk for the rootless container
-Documentation=https://github.com/the app user-sv-23469/alma-selfhosted
+Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
 # The 2 TB disk must be mounted before we can chown its root directory.
 Requires=var-mnt-nextcloud.mount
 After=var-mnt-nextcloud.mount

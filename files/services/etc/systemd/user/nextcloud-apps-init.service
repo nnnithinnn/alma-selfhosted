@@ -11,7 +11,7 @@
 
 [Unit]
 Description=Install & configure non-bundled Nextcloud apps
-Documentation=https://github.com/the app user-sv-23469/alma-selfhosted
+Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
 # Best-effort ordering after the app quadlet; the helper also polls occ itself.
 After=nextcloud.service
 Wants=nextcloud.service

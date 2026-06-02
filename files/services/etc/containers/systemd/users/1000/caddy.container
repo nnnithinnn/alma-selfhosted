@@ -2,7 +2,7 @@
 #
 # Publishes :80 + :443 (rootless low-port bind via
 # net.ipv4.ip_unprivileged_port_start=80) and terminates TLS for the
-# vpn.the app user.nl (Headscale) and cld.the app user.nl (Nextcloud) vhosts. Certs come
+# vpn.nithin.nl (Headscale) and cld.nithin.nl (Nextcloud) vhosts. Certs come
 # from Let's Encrypt (HTTP-01); see files/system/etc/caddy/Caddyfile.
 #
 # Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).

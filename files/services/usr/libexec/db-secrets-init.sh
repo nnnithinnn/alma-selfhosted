@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # db-secrets-init.sh — generate the database-tier credentials as rootless
-# podman secrets, owned by the the app user user.
+# podman secrets, owned by the app user.
 #
 # Runs once, early in the app user's (lingered) user systemd session, BEFORE the
 # postgres/valkey quadlets start (they order After=db-secrets-init.service).
