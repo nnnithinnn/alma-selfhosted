@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "labels": ["dependencies"],
+  "quadlet": {
+    "description": "Track Quadlet .container images at both the rootful path and the rootless users/<uid>/ path.",
+    "managerFilePatterns": [
+      "/(^|/)containers/systemd/(users/\\d+/)?[^/]+\\.container$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Container images (bootc base Containerfile FROM + Quadlet Image=): pin digests and split update types so major bumps are reviewed separately.",
+      "matchManagers": ["dockerfile", "quadlet"],
+      "pinDigests": true,
+      "separateMajorMinor": true,
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Headscale is pre-1.0; every minor (0.x) can carry breaking DB/config changes. Never auto-merge, always its own PR.",
+      "matchManagers": ["quadlet"],
+      "matchPackageNames": ["ghcr.io/juanfont/headscale"],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Group GitHub Actions bumps into a single PR.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}
