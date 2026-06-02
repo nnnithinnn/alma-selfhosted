@@ -59,6 +59,23 @@
 		reverse_proxy notify-push:7867
 	}
 
+	# Collabora Online (same-domain): route the COOL paths to the CODE container
+	# on :9980 (static assets, WOPI discovery/capabilities, and the /cool/*
+	# editing + WebSocket endpoints). reverse_proxy upgrades WebSockets itself.
+	# These must precede the catch-all handle below so they win the match.
+	handle /browser/* {
+		reverse_proxy collabora:9980
+	}
+	handle /hosting/discovery {
+		reverse_proxy collabora:9980
+	}
+	handle /hosting/capabilities {
+		reverse_proxy collabora:9980
+	}
+	handle /cool/* {
+		reverse_proxy collabora:9980
+	}
+
 	# Everything else -> the Nextcloud app server.
 	handle {
 		reverse_proxy nextcloud:80

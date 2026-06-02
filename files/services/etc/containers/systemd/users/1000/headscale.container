@@ -1,7 +1,7 @@
 # Headscale — self-hosted Tailscale control server (rootless, runs as the app user).
 #
 # Speaks plain HTTP on :8080 inside the shared `web` network; Caddy terminates
-# TLS for vpn.the app user.nl and reverse-proxies to headscale:8080 (Host header and
+# TLS for vpn.nithin.nl and reverse-proxies to headscale:8080 (Host header and
 # WebSocket upgrades pass through, covering the Noise /ts2021 and DERP paths).
 # Only the embedded DERP STUN listener (udp/3478) is published to the host.
 #
