@@ -108,11 +108,14 @@ quote any value containing shell metacharacters such as `;` (the DNS lists).
 ## Building & testing locally
 
 Requires [`just`](https://github.com/casey/just), `podman` (and
-`qemu-system-x86_64` + `ovmf` for boot tests). The recipes are fully rootless —
-no `sudo`. bootc-image-builder runs in its experimental rootless `--in-vm` mode,
-so your user only needs KVM access: add yourself to the `kvm` group once with
-`sudo usermod -aG kvm $USER`, then re-login. Run `just` with no arguments to list
-every recipe.
+`qemu-system-x86_64` + `ovmf` for boot tests). Hybrid privilege model: the image
+build and ISO step (`build`, `test-iso`/`prod-iso`, `clean`) use `sudo` —
+bootc-image-builder needs rootful podman because its experimental rootless mode
+relabels its store with SELinux contexts, which a non-SELinux host (e.g. Debian)
+can't do. The QEMU boot/test loop (`run-iso`, `run-disk`, `ssh`, `stop`) is
+rootless: BIB's `--chown` hands the artifacts back to you and KVM access comes
+from group membership — add yourself once with `sudo usermod -aG kvm $USER`, then
+re-login. Run `just` with no arguments to list every recipe.
 
 ```sh
 just build            # build the container image with Podman

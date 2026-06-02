@@ -3,14 +3,21 @@
 # Build the bootc container image with Podman, turn it into a test or production
 # installer ISO with bootc-image-builder, and boot/test it in QEMU.
 #
-# Fully rootless: no recipe uses sudo. `build` writes to the rootless container
-# store (~/.local/share/containers/storage); bootc-image-builder runs in its
-# experimental rootless `--in-vm` mode (a tiny KVM VM inside the container does
-# the privileged disk work) and reads that same rootless store; QEMU runs
-# unprivileged. This requires KVM access — your user must be in the `kvm` group
-# (one-time: `sudo usermod -aG kvm $USER`, then re-login). Everything else
-# (podman build, store prune, scratch cleanup) is rootless because the artifacts
-# and the container store are owned by you.
+# Hybrid privilege model — the QEMU boot/test loop is rootless; only the image
+# build and ISO step need sudo:
+#
+#   * `build` + `_bib` + the `podman` prune in `clean` run rootful. They share
+#     the rootful container store (/var/lib/containers/storage). This is NOT a
+#     choice: bootc-image-builder's experimental rootless `--in-vm` mode relabels
+#     its osbuild store with `chcon` (a security.selinux xattr), which only works
+#     on a host with SELinux. This box (Debian) has no SELinux, so rootless BIB
+#     fails with "chcon ... Operation not permitted". Rootful BIB is the only
+#     working path here.
+#   * Everything else is rootless. `_bib` uses BIB's `--chown $(id):$(id)` so the
+#     installer ISO and artifacts are owned by you, and QEMU runs unprivileged —
+#     so `run-iso`, `run-disk`, `ssh`, and `stop` need no sudo. That requires KVM
+#     access: add yourself to the `kvm` group once with
+#     `sudo usermod -aG kvm $USER`, then re-login.
 #
 # All ephemeral VM artifacts (writable OVMF vars, the 2 TB Nextcloud data disk,
 # the serial console log) live under ./output/vm so nothing outside the current
@@ -76,10 +83,10 @@ default:
 
 # Uses the layer cache; run `just clean` first to force a fully fresh build.
 
-# Build the bootc container image with Podman (rootless; lands in your
-# ~/.local/share/containers/storage store so the rootless _bib can read it).
+# Build the bootc container image with Podman (rootful: lands in the shared
+# /var/lib/containers/storage store that the rootful _bib reads).
 build:
-    podman build \
+    sudo podman build \
         --network=host \
         --security-opt=label=disable \
         --cap-add=all \
@@ -94,17 +101,20 @@ build:
 # Remove all build outputs (./output, incl. VM scratch) and the Podman build cache.
 clean:
     # Stop any running test VM first so it releases open files under ./output.
+    # QEMU runs rootless (kvm group), so no sudo needed to kill it.
     pkill -f OVMF_VARS_test.fd || true
     sleep 1
-    # Remove all build outputs (iso / raw + VM scratch).
-    rm -rf ./{{output}}
+    # ./output may hold root-owned osbuild artifacts from a rootful _bib run that
+    # failed before its --chown, so remove it with sudo.
+    sudo rm -rf ./{{output}}
     # Drop the locally built image plus any dangling layers and build cache, so
     # the next build is fully fresh (avoids the stale-layer trap where newly
     # added files are not picked up). The digest-pinned base and the
     # bootc-image-builder image are kept (immutable, expensive to re-pull).
-    podman rmi -f {{image}} 2>/dev/null || true
-    podman image prune -f
-    podman builder prune -f
+    # Rootful, because the image lives in the rootful store shared with _bib.
+    sudo podman rmi -f {{image}} 2>/dev/null || true
+    sudo podman image prune -f
+    sudo podman builder prune -f
     # Clear the stale SSH host key for the test VM.
     ssh-keygen -R '[127.0.0.1]:2222' >/dev/null 2>&1 || true
 
@@ -112,7 +122,7 @@ clean:
 _bib:
     #!/usr/bin/env bash
     set -euo pipefail
-    rm -rf ./{{output}}
+    sudo rm -rf ./{{output}}
     mkdir -p ./{{output}}
     cp {{iso_config}} ./{{output}}/config.toml
     CFG=./{{output}}/config.toml
@@ -149,23 +159,20 @@ _bib:
         sed -i '/# <REGISTRY_AUTH_POST>/d' "$CFG"
         echo "No {{registry_auth}}; building without private-registry credentials."
     fi
-    # Rootless build: no sudo. bootc-image-builder runs in its experimental
-    # `--in-vm` mode, which spins a short-lived KVM VM inside the container to do
-    # the privileged disk work (loopback mounts, partitioning) that a rootless
-    # user namespace can't. It reads the source image from YOUR rootless store
-    # (~/.local/share/containers/storage), so `just build` must have run first.
-    # `--privileged` here is rootless-bounded (only grants caps you already hold)
-    # and KVM access comes from your `kvm` group membership. `--chown` hands the
-    # output back to you so the rest of the pipeline needs no root.
-    podman run \
+    # Rootful build: bootc-image-builder needs real root here. Its experimental
+    # rootless `--in-vm` mode relabels the osbuild store with chcon (a
+    # security.selinux xattr) which only an SELinux-enabled host allows; this box
+    # has no SELinux, so rootless fails with "chcon ... Operation not permitted".
+    # `--chown $(id):$(id)` hands the output back to you, so the QEMU recipes that
+    # consume it (run-iso/run-disk/stop) stay rootless.
+    sudo podman run \
         --rm -it --privileged --pull=newer \
         --network=host \
         --security-opt label=type:unconfined_t \
         -v ./{{output}}:/output \
         -v ./{{output}}/config.toml:/config.toml:ro \
-        -v ${HOME}/.local/share/containers/storage:/var/lib/containers/storage \
+        -v /var/lib/containers/storage:/var/lib/containers/storage \
         {{bib_image}} \
-        --in-vm \
         --chown $(id -u):$(id -g) \
         --type iso \
         --use-librepo=False \
