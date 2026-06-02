@@ -1,0 +1,75 @@
+# The `nithin` account and its SSH key are baked into the bootc image (20-users.sh),
+# so Anaconda has no users to manage. In cmdline/non-interactive mode its Users
+# module otherwise makes "Root password" and "User creation" mandatory spokes and
+# aborts the install. Disabling the module drops both spokes; root stays locked as
+# the base image defines it and login happens via the baked SSH key.
+[customizations.installer.modules]
+disable = [
+  "org.fedoraproject.Anaconda.Modules.Users"
+]
+
+[customizations.installer.kickstart]
+contents = """
+# When a custom installer kickstart is supplied, bootc-image-builder ONLY injects
+# the `ostreecontainer` line (and a bootc-switch %post). It adds NO partitioning,
+# install-mode, network, etc. -- those are entirely our responsibility, otherwise
+# Anaconda has no install scheme and drops to the interactive GUI.
+# See: https://github.com/osbuild/bootc-image-builder README (installer options).
+
+# Fully unattended text install; never fall back to the interactive UI.
+text --non-interactive
+
+# Restrict the OS install to the smallest whole disk (the ~60 GB NVMe) so the
+# installer can never touch or wipe the 2 TB Nextcloud data disk. The disk is
+# selected dynamically by size, so this works regardless of device naming
+# (vda/sda/nvme0n1, etc.). The data disk is prepared separately on first boot
+# by nextcloud-data-init.service.
+%pre --erroronfail
+smallest=""
+smallest_size=0
+for d in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+  # Skip virtual/non-installable block devices that also report TYPE=disk
+  # (zram RAM disks, loop/ram devices, optical media). The installer creates a
+  # tiny zram device, which would otherwise be picked as the "smallest disk".
+  case "$d" in
+    zram*|loop*|ram*|sr*|fd*|dm-*|md*) continue ;;
+  esac
+  size=$(blockdev --getsize64 "/dev/$d" 2>/dev/null || echo 0)
+  if [ "$size" -le 0 ]; then continue; fi
+  if [ "$smallest_size" -eq 0 ] || [ "$size" -lt "$smallest_size" ]; then
+    smallest="$d"
+    smallest_size="$size"
+  fi
+done
+echo "ignoredisk --only-use=$smallest" > /tmp/disk-include
+%end
+
+%include /tmp/disk-include
+
+# Partition the selected disk only. clearpart --all is scoped to the non-ignored
+# disk above, so the 2 TB data disk is never wiped. XFS everywhere, no swap (the
+# host uses zram), reqpart provides the ESP + /boot automatically.
+zerombr
+clearpart --all --initlabel --disklabel=gpt
+reqpart --add-boot
+part / --fstype=xfs --grow
+
+# Eject the install ISO and reboot into the freshly installed system, all within
+# the same QEMU process, so the box stays up and SSH-able after `just run-iso`.
+# --eject removes the CD-ROM first so the firmware boots the installed disk
+# instead of looping back into the installer.
+reboot --eject
+
+%post --erroronfail --log=/root/anaconda-post.log
+bootc switch --mutate-in-place --transport registry <IMAGE_SIGNED> <UPDATE_IMAGE_REF>
+
+%end
+
+# Pull credentials for `bootc upgrade` from a PRIVATE registry are injected here
+# at ISO build time by the Justfile `_bib` recipe, from a local gitignored auth
+# file. The token is written to /etc/ostree/auth.json on the INSTALLED system
+# only -- it is never committed and never baked into the published container
+# image. If no auth file is present this placeholder is dropped and pulls are
+# anonymous (fine for a public image). See the Justfile `registry_auth` var.
+# <REGISTRY_AUTH_POST>
+"""
