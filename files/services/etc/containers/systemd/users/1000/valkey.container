@@ -22,7 +22,7 @@ Requires=db-secrets-init.service
 After=db-secrets-init.service
 
 [Container]
-Image=ghcr.io/valkey-io/valkey:8-alpine@sha256:7a4757b20a5cbc9bc25c64ce555a5639424afc2f6856b5b19854ef1c055bc9ce
+Image=ghcr.io/valkey-io/valkey:8-alpine@sha256:18c7010efe0a74c334ee01bd2c5632735d2c0d9518f85b9ad3d995314c6a0b7a
 
 # Isolated back-end network only. No PublishPort: never exposed to the host.
 Network=data.network
