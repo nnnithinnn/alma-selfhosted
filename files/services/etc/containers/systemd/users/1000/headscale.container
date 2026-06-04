@@ -36,10 +36,12 @@ PublishPort=3478:3478/udp
 # named volume under the app user's /var home.
 Volume=headscale-data:/var/lib/headscale
 
-# Baked, read-only config. No :Z relabel (rootless can't relabel a root-owned
-# file); the SELinux policy labels /etc/headscale as container_file_t at deploy
-# time so the container (container_t) can read it directly.
+# Baked, read-only config + ACL policy. No :Z relabel (rootless can't relabel a
+# root-owned file); the SELinux policy labels /etc/headscale as container_file_t
+# at deploy time so the container (container_t) can read it directly.
 Volume=/etc/headscale/config.yaml:/etc/headscale/config.yaml:ro
+# ACL policy (HuJSON). config.yaml sets policy.mode=file, policy.path to this.
+Volume=/etc/headscale/policy.json:/etc/headscale/policy.json:ro
 
 # Least privilege: no low ports are bound (8080/3478 are high), so drop all
 # capabilities.
