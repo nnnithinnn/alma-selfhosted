@@ -55,10 +55,10 @@ fw --zone=public --remove-service-from-zone=cockpit
 # HTTPS through Caddy (443); only the STUN listener needs a direct UDP path.
 fw --zone=public --add-port=3478/udp
 
-# --- Ports intentionally NOT opened yet (added with their own phases) --------
-# Tailscale direct (exit node):   firewall-offline-cmd --zone=public --add-port=41641/udp
-# Not running yet, so per "only the absolutely needed ports" it stays closed
-# until the rootful Tailscale container lands.
-
+# Tailscale direct connections (exit node). The rootful Tailscale container uses
+# host networking and binds this port directly on the host for peer-to-peer
+# WireGuard; opening it lets clients establish direct (non-DERP-relayed) paths to
+# the exit node. See files/services/etc/containers/systemd/tailscale.container.
+fw --zone=public --add-port=41641/udp
 # Show the resulting permanent config in the build log for verification.
 firewall-offline-cmd --zone=public --list-all

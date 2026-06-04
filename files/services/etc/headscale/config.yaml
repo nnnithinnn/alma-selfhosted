@@ -99,10 +99,11 @@ log:
   level: info
   format: text
 
-# ACL policy stored in a file (none configured yet).
+# ACL policy stored in a file. Baked read-only at /etc/headscale/policy.json
+# (HuJSON): defines tag:exit ownership and auto-approves the exit node's route.
 policy:
   mode: file
-  path: ""
+  path: /etc/headscale/policy.json
 
 # MagicDNS. base_domain MUST differ from the server_url domain (@@HEADSCALE_HOST@@).
 dns:

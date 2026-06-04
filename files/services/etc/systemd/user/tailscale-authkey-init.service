@@ -1,0 +1,32 @@
+# tailscale-authkey-init — mint a Headscale pre-auth key for the Tailscale exit
+# node and hand it to the rootful Tailscale container.
+#
+# USER unit (runs in the app user's systemd --user manager, started at boot via
+# systemd-linger). Enabled by a baked symlink in
+# /etc/systemd/user/default.target.wants/ because `systemctl --user enable`
+# cannot run for the user at image build time.
+#
+# Headscale is rootless, so this MUST run as the app user (it drives the
+# headscale CLI via `podman exec`). It writes /var/lib/tailscale-bootstrap/
+# authkey.env, which tailscale-authkey.path (rootful) watches to start the node.
+#
+# Idempotent: the helper no-ops if authkey.env already exists, and self-heals on
+# the next boot if Headscale wasn't ready yet (TimeoutStartSec bounds the wait).
+
+[Unit]
+Description=Mint Headscale pre-auth key for the Tailscale exit node
+Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
+# Best-effort ordering after the headscale quadlet; the helper also polls the
+# headscale CLI itself before doing anything.
+After=headscale.service
+Wants=headscale.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/tailscale-authkey-init.sh
+# First boot pulls the headscale image and initializes its DB; allow time.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target
