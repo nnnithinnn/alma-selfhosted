@@ -53,6 +53,39 @@ bootc reminder: `/usr` is read-only and `/etc` is merged on update — only
 `/var` is persistent. All state and secrets live under `/var` and are never
 baked into the image.
 
+## Tailscale exit node
+
+The host is both a Headscale control server and a tailnet **exit node**, wired up
+fully automatically on first boot — no manual `tailscale up`, no key copy-paste,
+no route approval:
+
+1. **`tailscale-authkey-init`** (a rootless *user* unit) waits for Headscale,
+   ensures the `APP_USER` Headscale user exists, and mints a reusable pre-auth
+   key tagged `tag:exit`, writing it (plus the derived hostname) atomically to
+   `/var/lib/tailscale-bootstrap/authkey.env`.
+2. **`tailscale-authkey.path`** (rootful) watches for that file and starts the
+   **`tailscale.container`** node once it appears. The node enrolls with
+   `--advertise-exit-node` against `https://HEADSCALE_HOST`.
+3. The baked Headscale ACL policy
+   ([`policy.json`](files/services/etc/headscale/policy.json)) auto-approves the
+   exit route (`0.0.0.0/0` + `::/0`) for `tag:exit` via `autoApprovers`, so the
+   route is live immediately.
+
+Notes:
+
+- The tailnet device name is the **label** of `HEADSCALE_HOST` (`vpn.nithin.nl`
+  → `vpn`), derived in the bootstrap script — no extra `config.env` token.
+- Tailscale is the **single rootful exception**: an exit node needs host
+  networking, `/dev/net/tun`, `NET_ADMIN`/`NET_RAW` and host-wide IP forwarding
+  (`90-ip-forward.conf`) to NAT tailnet egress. `41641/udp` is opened for direct
+  peer connections.
+- Caddy uses the Let's Encrypt **production** CA (not staging): Tailscale
+  validates the Headscale control-server cert and rejects untrusted staging
+  certs.
+- **Re-enroll:** delete `/var/lib/tailscale-bootstrap/authkey.env` and
+  `systemctl --user restart tailscale-authkey-init` (do this if the
+  `headscale-data` or `tailscale-data` volume is wiped).
+
 ## Repository layout
 
 ```
@@ -65,7 +98,11 @@ files/
     00-config.sh           #   substitute config.env @@TOKENS@@ into baked files
     05-debloat.sh          #   strip server-irrelevant packages
     10-base.sh             #   base tweaks + enable storage units
+    15-selinux.sh          #   label baked container configs container_file_t
     20-users.sh            #   lock root, subuid/subgid, perms
+    25-network.sh          #   networking tweaks
+    30-firewall.sh         #   firewalld: default-drop inbound, open service ports
+    40-tailscale.sh        #   arm the rootful exit-node path trigger
     90-signing.sh 91-* cleanup.sh   # template-provided, do not edit
   base/                    # 1) base OS + hardening    -> copied to / (in order)
     etc/ssh/, etc/sudoers.d/, etc/motd.d/
