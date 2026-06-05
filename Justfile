@@ -211,6 +211,10 @@ data-disk:
 run-iso:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ ! -f "{{iso_file}}" ]; then
+        echo "{{iso_file}} not found — building test ISO first..."
+        just test-iso
+    fi
     pkill -f '[O]VMF_VARS_test.fd' || true
     sleep 1
     mkdir -p {{vm_dir}}
