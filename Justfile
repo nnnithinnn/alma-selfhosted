@@ -102,7 +102,7 @@ build:
 clean:
     # Stop any running test VM first so it releases open files under ./output.
     # QEMU runs rootless (kvm group), so no sudo needed to kill it.
-    pkill -f OVMF_VARS_test.fd || true
+    pkill -f '[O]VMF_VARS_test.fd' || true
     sleep 1
     # ./output may hold root-owned osbuild artifacts from a rootful _bib run that
     # failed before its --chown, so remove it with sudo.
@@ -211,7 +211,7 @@ data-disk:
 run-iso:
     #!/usr/bin/env bash
     set -euo pipefail
-    pkill -f OVMF_VARS_test.fd || true
+    pkill -f '[O]VMF_VARS_test.fd' || true
     sleep 1
     mkdir -p {{vm_dir}}
     rm -f {{vm_dir}}/OVMF_VARS_test.fd {{raw_disk}}
@@ -240,7 +240,7 @@ run-iso:
 run-disk:
     #!/usr/bin/env bash
     set -euo pipefail
-    pkill -f OVMF_VARS_test.fd || true
+    pkill -f '[O]VMF_VARS_test.fd' || true
     sleep 1
     mkdir -p {{vm_dir}}
     [ -f {{vm_dir}}/OVMF_VARS_test.fd ] || cp {{ovmf_vars_src}} {{vm_dir}}/OVMF_VARS_test.fd
@@ -265,5 +265,5 @@ ssh:
 
 # Stop the running VM and remove the VM scratch dir (output/vm).
 stop:
-    pkill -f OVMF_VARS_test.fd || true
+    pkill -f '[O]VMF_VARS_test.fd' || true
     rm -rf {{vm_dir}}
