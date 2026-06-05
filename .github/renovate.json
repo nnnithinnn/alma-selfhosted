@@ -35,6 +35,12 @@
       "automerge": false
     },
     {
+      "description": "BLOCK Postgres major version bumps. A Postgres major upgrade (e.g. 18->19) changes the on-disk data directory format. Simply updating the image tag will cause `FATAL: database files are incompatible with server` and take Nextcloud fully offline until a manual pg_dump / pg_restore migration is completed. Major Postgres upgrades must be done deliberately as a documented maintenance procedure, never via an automated PR. Digest and minor/patch updates within the current major are fine.",
+      "matchManagers": ["quadlet"],
+      "matchPackageNames": ["public.ecr.aws/docker/library/postgres"],
+      "allowedVersions": ">=18 <19"
+    },
+    {
       "description": "Group GitHub Actions bumps into a single PR.",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"
