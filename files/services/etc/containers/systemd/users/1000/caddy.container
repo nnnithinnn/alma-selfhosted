@@ -39,6 +39,14 @@ NoNewPrivileges=true
 DropCapability=ALL
 AddCapability=NET_BIND_SERVICE
 
+# Liveness: Caddy admin API (binds localhost:2019 by default; not published
+# outside the container). Returns 200 once Caddy is up and serving.
+HealthCmd=curl -sf http://localhost:2019/
+HealthStartPeriod=30s
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+
 [Service]
 Restart=always
 # First boot pulls the image from the registry; allow time for that.

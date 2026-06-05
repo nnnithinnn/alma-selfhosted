@@ -48,6 +48,14 @@ Volume=/etc/headscale/policy.json:/etc/headscale/policy.json:ro
 NoNewPrivileges=true
 DropCapability=ALL
 
+# Liveness: Prometheus metrics endpoint (bound to 127.0.0.1:9090 inside the
+# container per config.yaml metrics_listen_addr — never published to the host).
+HealthCmd=curl -sf http://127.0.0.1:9090/metrics
+HealthStartPeriod=60s
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+
 [Service]
 Restart=always
 # First boot pulls the image from the registry; allow time for that.

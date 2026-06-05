@@ -1,4 +1,4 @@
-# PostgreSQL 17 — Nextcloud's primary database (rootless, runs as the app user).
+# PostgreSQL 18 — Nextcloud's primary database (rootless, runs as the app user).
 #
 # Lives ONLY on the isolated `data` network (Internal=true, no egress). Nextcloud
 # will later join both `web` and `data` to reach it as `postgres:5432`. The DB is
@@ -13,8 +13,8 @@
 # Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
 
 [Unit]
-Description=PostgreSQL 17 (Nextcloud database)
-Documentation=https://www.postgresql.org/docs/17/
+Description=PostgreSQL 18 (Nextcloud database)
+Documentation=https://www.postgresql.org/docs/18/
 After=network-online.target
 Wants=network-online.target
 # The credential secret must exist before Postgres initialises its data dir.
@@ -22,7 +22,7 @@ Requires=db-secrets-init.service
 After=db-secrets-init.service
 
 [Container]
-Image=public.ecr.aws/docker/library/postgres:17-alpine@sha256:5a6fcbc5d93831991d2386fa634509b3c49a1ac5ffb70c13c2322840f821d7e7
+Image=public.ecr.aws/docker/library/postgres:18-alpine@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
 
 # Isolated back-end network only. No PublishPort: never exposed to the host.
 Network=data.network

@@ -40,6 +40,14 @@ Exec=sh -c 'exec valkey-server --requirepass "$(cat /run/secrets/valkey_password
 # down to the `valkey` user (needs CAP_SETUID/SETGID in the rootless userns), so
 # we do NOT DropCapability=ALL and leave NoNewPrivileges at podman's default.
 
+# Liveness: PING/PONG via valkey-cli. Password is read from the mounted secret
+# at check time — identical to how the server itself reads it at startup.
+HealthCmd=sh -c 'valkey-cli -a "$(cat /run/secrets/valkey_password)" ping | grep -q PONG'
+HealthStartPeriod=15s
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=3
+
 [Service]
 Restart=always
 # First boot pulls the image from the registry; allow time for that.

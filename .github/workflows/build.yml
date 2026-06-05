@@ -77,6 +77,39 @@ jobs:
 
           cat /etc/os-release
           bootc -V
+
+          # Verify helper scripts have the exec bit set (catches the most
+          # common build mistake: cp preserving a non-executable source file).
+          for script in \
+            /usr/libexec/nextcloud-data-init.sh \
+            /usr/libexec/nextcloud-data-chown.sh \
+            /usr/libexec/nextcloud-apps-init.sh \
+            /usr/libexec/db-secrets-init.sh \
+            /usr/libexec/tailscale-authkey-init.sh; do
+            test -x "$script" && echo "OK (exec): $script" \
+              || { echo "NOT EXECUTABLE: $script"; exit 1; }
+          done
+
+          # Verify key config files are present and non-empty.
+          for f in \
+            /etc/caddy/Caddyfile \
+            /etc/headscale/config.yaml \
+            /etc/headscale/policy.json \
+            /etc/nextcloud/hooks/post-installation/10-config.sh; do
+            test -s "$f" && echo "OK (present): $f" \
+              || { echo "MISSING OR EMPTY: $f"; exit 1; }
+          done
+
+          # Verify key systemd unit files exist.
+          for unit in \
+            /usr/lib/systemd/system/nextcloud-data-init.service \
+            /usr/lib/systemd/system/nextcloud-data-chown.service \
+            /usr/lib/systemd/system/tailscale-authkey.path \
+            /usr/lib/systemd/system/bootc-upgrade.service \
+            /usr/lib/systemd/system/bootc-upgrade.timer; do
+            test -f "$unit" && echo "OK (unit): $unit" \
+              || { echo "MISSING: $unit"; exit 1; }
+          done
           EOF
 
           podman run --rm \

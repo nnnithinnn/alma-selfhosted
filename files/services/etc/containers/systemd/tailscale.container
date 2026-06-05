@@ -62,6 +62,15 @@ Environment=TS_ACCEPT_DNS=false
 # Advertise as an exit node and point at the self-hosted control server.
 Environment=TS_EXTRA_ARGS=--advertise-exit-node --login-server=https://@@HEADSCALE_HOST@@
 
+# Liveness: tailscale CLI reports connected state. Uses the Unix socket that
+# the daemon creates inside the state volume. Large start period covers the
+# first-boot enrollment flow (authkey-init -> enroll -> route approval).
+HealthCmd=tailscale status
+HealthStartPeriod=180s
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+
 [Service]
 # TS_AUTHKEY (and TS_HOSTNAME) come from the bootstrap unit's output. This file
 # is produced by tailscale-authkey-init.service; tailscale-authkey.path won't
