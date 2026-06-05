@@ -60,6 +60,7 @@ Environment=NEXTCLOUD_TRUSTED_DOMAINS=@@NEXTCLOUD_HOST@@
 # Caddy's container IP is allocated from the web network's pinned subnet.
 Environment=TRUSTED_PROXIES=@@WEB_SUBNET@@
 Environment=OVERWRITEPROTOCOL=https
+Environment=OVERWRITEHOST=@@NEXTCLOUD_HOST@@
 Environment=OVERWRITECLIURL=https://@@NEXTCLOUD_HOST@@
 # Caddy already sets X-Forwarded-For; let the image trust it as-is.
 Environment=APACHE_DISABLE_REWRITE_IP=1

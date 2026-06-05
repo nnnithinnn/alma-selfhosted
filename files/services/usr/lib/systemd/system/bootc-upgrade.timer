@@ -1,0 +1,17 @@
+# bootc-upgrade.timer — daily OS image upgrade check at 06:00 UTC.
+#
+# Runs after the Nextcloud maintenance window (01:00–~05:00 UTC) so heavy
+# background jobs have finished before a potential reboot. RandomizedDelaySec
+# adds up to 30 minutes of jitter to avoid thundering-herd if multiple hosts
+# use the same image. Persistent=true catches up a missed run after downtime.
+
+[Unit]
+Description=Daily bootc OS image upgrade check
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

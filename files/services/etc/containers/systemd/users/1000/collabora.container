@@ -48,6 +48,10 @@ Environment=aliasgroup1=https://@@NEXTCLOUD_HOST@@:443
 #   Linux capabilities Collabora's sandbox would otherwise request, so disable it.
 Environment=extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:security.capabilities=false
 
+# Memory cap: CODE can grow to 1–2 GB on active sessions. Capping at 1.5 GB
+# prevents OOM from cascading onto Postgres or Nextcloud on this 6 GB VPS.
+PodmanArgs=--memory=1536m
+
 # Liveness: the WOPI discovery XML is served once coolwsd is ready.
 HealthCmd=curl --fail --silent http://localhost:9980/hosting/discovery
 HealthStartPeriod=60s

@@ -42,6 +42,14 @@ chmod 0755 /etc/nextcloud/hooks/post-installation/10-config.sh
 # a baked symlink in /etc/systemd/user/timers.target.wants/.
 chmod 0755 /usr/libexec/nextcloud-apps-init.sh
 
+### Automatic OS upgrades #####################################################
+# bootc-upgrade.timer runs `bootc upgrade --apply` daily at 06:00 UTC. It
+# only reboots if a new image was actually published to GHCR — a no-op run
+# costs nothing. See:
+#   - files/services/usr/lib/systemd/system/bootc-upgrade.service
+#   - files/services/usr/lib/systemd/system/bootc-upgrade.timer
+systemctl enable bootc-upgrade.timer
+
 ### Database tier: rootless secrets bootstrap ################################
 # db-secrets-init generates the Postgres/Valkey passwords as rootless podman
 # secrets on first boot (in the app user's lingered user session). It is enabled via

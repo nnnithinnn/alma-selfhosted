@@ -21,10 +21,18 @@
       "separateMinorPatch": true
     },
     {
+      "description": "Digest-only updates (same semver tag, new content hash) are purely supply-chain security patches — safe to auto-merge once CI passes.",
+      "matchManagers": ["dockerfile", "quadlet"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
       "description": "Headscale is pre-1.0; every minor (0.x) can carry breaking DB/config changes. Never auto-merge, always its own PR.",
       "matchManagers": ["quadlet"],
       "matchPackageNames": ["ghcr.io/juanfont/headscale"],
-      "separateMinorPatch": true
+      "separateMinorPatch": true,
+      "automerge": false
     },
     {
       "description": "Group GitHub Actions bumps into a single PR.",
