@@ -1,6 +1,6 @@
 [Unit]
 Description=Initialize Nextcloud data disk (auto-format if unlabeled)
-Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
 DefaultDependencies=no
 After=systemd-udev-settle.service local-fs-pre.target
 Wants=systemd-udev-settle.service

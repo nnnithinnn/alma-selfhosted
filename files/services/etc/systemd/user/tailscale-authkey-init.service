@@ -15,7 +15,7 @@
 
 [Unit]
 Description=Mint Headscale pre-auth key for the Tailscale exit node
-Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
 # Best-effort ordering after the headscale quadlet; the helper also polls the
 # headscale CLI itself before doing anything.
 After=headscale.service
