@@ -14,36 +14,26 @@
   },
   "packageRules": [
     {
-      "description": "Container images (bootc base Containerfile FROM + Quadlet Image=): pin digests and split update types so major bumps are reviewed separately.",
-      "matchManagers": ["dockerfile", "quadlet"],
+      "description": "Group ALL container image and Actions updates into one PR. Headscale excluded — it gets its own PR due to pre-1.0 breaking-change risk.",
+      "matchManagers": ["dockerfile", "quadlet", "github-actions"],
+      "excludePackageNames": ["ghcr.io/juanfont/headscale"],
+      "groupName": "dependencies",
       "pinDigests": true,
-      "separateMajorMinor": true,
-      "separateMinorPatch": true
+      "separateMajorMinor": false,
+      "separateMinorPatch": false
     },
     {
-      "description": "Digest-only updates (same semver tag, new content hash) are purely supply-chain security patches — safe to auto-merge once CI passes.",
-      "matchManagers": ["dockerfile", "quadlet"],
-      "matchUpdateTypes": ["digest"],
-      "automerge": true,
-      "platformAutomerge": true
-    },
-    {
-      "description": "Headscale is pre-1.0; every minor (0.x) can carry breaking DB/config changes. Never auto-merge, always its own PR.",
+      "description": "Headscale: always its own separate PR — pre-1.0, any minor (0.x) bump can carry breaking DB/config changes.",
       "matchManagers": ["quadlet"],
       "matchPackageNames": ["ghcr.io/juanfont/headscale"],
       "separateMinorPatch": true,
       "automerge": false
     },
     {
-      "description": "BLOCK Postgres major version bumps. A Postgres major upgrade (e.g. 18->19) changes the on-disk data directory format. Simply updating the image tag will cause `FATAL: database files are incompatible with server` and take Nextcloud fully offline until a manual pg_dump / pg_restore migration is completed. Major Postgres upgrades must be done deliberately as a documented maintenance procedure, never via an automated PR. Digest and minor/patch updates within the current major are fine.",
+      "description": "Postgres: block major version bumps. A major upgrade changes the on-disk data directory format and requires a manual pg_dump/pg_restore migration. Update allowedVersions deliberately when ready.",
       "matchManagers": ["quadlet"],
       "matchPackageNames": ["public.ecr.aws/docker/library/postgres"],
       "allowedVersions": ">=18 <19"
-    },
-    {
-      "description": "Group GitHub Actions bumps into a single PR.",
-      "matchManagers": ["github-actions"],
-      "groupName": "github-actions"
     }
   ]
 }
