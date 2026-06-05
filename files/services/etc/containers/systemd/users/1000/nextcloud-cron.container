@@ -21,7 +21,7 @@ Requires=nextcloud.service
 After=nextcloud.service
 
 [Container]
-Image=public.ecr.aws/docker/library/nextcloud:33.0.4-apache@sha256:caa40b8beaf0057ac213d8dfc515c36ce64f7a8f0825b6a287e6f7cf2f4a095d
+Image=public.ecr.aws/docker/library/nextcloud:33.0.5-apache@sha256:4c8bf9140e07ad0293e32500de47a97647677cd4cace358db3ecdc225dff9856
 
 # Back-end only: reaches postgres:5432 / valkey:6379. No web, no PublishPort.
 Network=data.network
