@@ -14,7 +14,7 @@
 
 [Unit]
 Description=Watch for the Tailscale bootstrap auth key
-Documentation=https://github.com/nithin-sv-23469/alma-selfhosted
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
 
 [Path]
 # Fires once the bootstrap unit has written the auth key (written atomically via

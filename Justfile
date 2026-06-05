@@ -50,7 +50,7 @@ update_signed := "false"
 registry_auth := "ghcr-auth.json"
 
 # The private image the production install media tracks for upgrades.
-prod_ref      := "ghcr.io/nithin-sv-23469/alma-selfhosted:latest"
+prod_ref      := "ghcr.io/nnnithinnn/alma-selfhosted:latest"
 
 # bootc-image-builder. Override with
 #   just bib_image=ghcr.io/osbuild/bootc-image-builder:latest test-iso
