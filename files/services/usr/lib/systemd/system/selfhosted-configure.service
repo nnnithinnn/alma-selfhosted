@@ -1,0 +1,19 @@
+[Unit]
+Description=Apply selfhosted configuration from /etc/selfhosted/config.env
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
+# Run very early — before sysusers creates the app user (we write the
+# /etc/sysusers.d/app-user.conf they will read) and before tmpfiles-setup
+# materializes dirs (we write /etc/tmpfiles.d/ overrides for those dirs).
+# DefaultDependencies=no lets us slot in before the normal boot ordering.
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-sysusers.service
+Before=systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/selfhosted/configure
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=Nextcloud data disk (2 TB)
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
+After=nextcloud-data-init.service
+Wants=nextcloud-data-init.service
+
+[Mount]
+What=/dev/disk/by-label/ncdata
+Where=/var/mnt/nextcloud
+Type=xfs
+# nofail: a missing/unformatted disk must not block boot.
+# context=: label the whole dedicated disk for container access in one shot,
+#   avoiding a slow recursive relabel (podman :Z) on first container start.
+Options=defaults,nofail,context=system_u:object_r:container_file_t:s0,x-systemd.device-timeout=30s
+
+[Install]
+WantedBy=local-fs.target

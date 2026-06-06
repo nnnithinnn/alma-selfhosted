@@ -1,0 +1,90 @@
+# Caddy — TLS edge / reverse proxy (rootless, runs as user the app user).
+#
+# Terminates HTTPS for the public services and routes by hostname:
+#   - @@HEADSCALE_HOST@@ -> Headscale control server (+ embedded DERP over HTTPS)
+#   - @@NEXTCLOUD_HOST@@ -> Nextcloud
+#
+# Certificates: Let's Encrypt via the HTTP-01 challenge (port 80). We force
+# HTTP-01 by disabling the TLS-ALPN challenge. Uses the LE *production* CA so the
+# certs are publicly trusted — REQUIRED because the self-hosted Tailscale exit
+# node validates this server's cert when it enrolls against Headscale, and it
+# rejects the untrusted LE staging CA.
+#
+# NOTE: the headscale/nextcloud upstreams are resolved lazily via aardvark-dns
+# on the `web` network, so Caddy starts fine before those backends exist; the
+# affected vhost just returns 502 until its container is up.
+
+{
+	# ACME account contact (expiry notices / recovery).
+	email @@ACME_EMAIL@@
+
+	# Let's Encrypt *production* — publicly trusted certs (default CA). Tailscale
+	# requires a trusted control-server cert, so staging is not an option here.
+}
+
+# Shared TLS policy: Let's Encrypt production via HTTP-01 only.
+(http01) {
+	tls {
+		issuer acme {
+			email @@ACME_EMAIL@@
+			# Force the HTTP-01 challenge (served on :80) by turning off the
+			# TLS-ALPN challenge. (No DNS challenge configured.)
+			disable_tlsalpn_challenge
+		}
+	}
+}
+
+# Shared HSTS policy: one-year max-age, includeSubDomains, preload.
+# Applied to all public vhosts so browsers enforce HTTPS-only universally.
+(hsts) {
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+}
+
+# Headscale control server + embedded DERP relay (WebSockets handled
+# automatically by reverse_proxy). Backend lands in the headscale phase.
+@@HEADSCALE_HOST@@ {
+	import http01
+	import hsts
+	reverse_proxy headscale:8080
+}
+
+# Nextcloud. Backend (app + DB + Valkey) lands in the nextcloud phase.
+@@NEXTCLOUD_HOST@@ {
+	import http01
+	import hsts
+
+	# Service-discovery shortcuts: DAV clients probe /.well-known/{caldav,carddav}
+	# at the domain root; redirect them to Nextcloud's DAV endpoint (also clears
+	# the corresponding admin setup warning).
+	redir /.well-known/carddav /remote.php/dav/ 301
+	redir /.well-known/caldav /remote.php/dav/ 301
+
+	# High Performance Backend (notify_push): the push server runs as a sidecar
+	# on :7867. handle_path strips the /push prefix so the server sees /ws etc.
+	# at its root. WebSocket upgrades are handled automatically by reverse_proxy.
+	handle_path /push/* {
+		reverse_proxy notify-push:7867
+	}
+
+	# Collabora Online (same-domain): route the COOL paths to the CODE container
+	# on :9980 (static assets, WOPI discovery/capabilities, and the /cool/*
+	# editing + WebSocket endpoints). reverse_proxy upgrades WebSockets itself.
+	# These must precede the catch-all handle below so they win the match.
+	handle /browser/* {
+		reverse_proxy collabora:9980
+	}
+	handle /hosting/discovery {
+		reverse_proxy collabora:9980
+	}
+	handle /hosting/capabilities {
+		reverse_proxy collabora:9980
+	}
+	handle /cool/* {
+		reverse_proxy collabora:9980
+	}
+
+	# Everything else -> the Nextcloud app server.
+	handle {
+		reverse_proxy nextcloud:80
+	}
+}

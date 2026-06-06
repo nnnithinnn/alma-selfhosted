@@ -1,0 +1,16 @@
+[Unit]
+Description=Fix ownership of the Nextcloud data disk for the rootless container
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
+# The 2 TB disk must be mounted before we can chown its root directory.
+Requires=var-mnt-nextcloud.mount
+After=var-mnt-nextcloud.mount
+# Run exactly once: skip entirely on subsequent boots.
+ConditionPathExists=!/var/lib/nextcloud-data-chown.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nextcloud-data-chown.sh
+
+[Install]
+WantedBy=multi-user.target

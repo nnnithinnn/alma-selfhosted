@@ -1,0 +1,17 @@
+# Periodic trigger for nextcloud-preview-generator.service.
+#
+# USER timer, enabled by a baked symlink in
+# /etc/systemd/user/timers.target.wants/ (since `systemctl --user enable` can't
+# run at image build time). Pre-generates previews hourly.
+
+[Unit]
+Description=Hourly Nextcloud preview pre-generation
+Documentation=https://github.com/nextcloud/previewgenerator
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

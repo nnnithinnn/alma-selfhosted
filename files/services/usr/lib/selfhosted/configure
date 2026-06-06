@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# /usr/lib/selfhosted/configure
+#
+# Applies @@TOKEN@@ substitution from templates in /usr/lib/selfhosted/templates/
+# to their live destinations. Runs on every boot via selfhosted-configure.service
+# (before systemd-sysusers and systemd-tmpfiles-setup).
+#
+# Re-applies a template only when its SHA-256 hash changes (i.e. after a bootc
+# upgrade delivers a new template). Hash state lives in /var/lib/selfhosted/
+# template-hashes/, which persists in /var across upgrades.
+#
+# If /etc/selfhosted/config.env does not exist (unconfigured system) the script
+# exits 0 silently — sysusers won't create a user, but the boot continues.
+
+set -euo pipefail
+
+CONFIG=/etc/selfhosted/config.env
+TEMPLATES=/usr/lib/selfhosted/templates
+HASHES=/var/lib/selfhosted/template-hashes
+
+if [[ ! -f "$CONFIG" ]]; then
+    echo "selfhosted-configure: $CONFIG not found — skipping (system not yet configured)" >&2
+    exit 0
+fi
+
+# Load all deployment variables.
+# shellcheck source=/dev/null
+source "$CONFIG"
+
+# Make config.env readable by the app user's primary group (GID 1000) so that
+# user-mode services (tailscale-authkey-init, nextcloud-apps-init) can source
+# it directly. Uses numeric GID — valid before systemd-sysusers creates the
+# named group entry; the kernel stores it as a raw number.
+chown root:1000 "$CONFIG"
+chmod 0640 "$CONFIG"
+
+mkdir -p "$HASHES"
+
+# ---------------------------------------------------------------------------
+# sed escape: make a literal value safe as a sed replacement string.
+# Escapes \, the | delimiter, and & (back-reference in replacement).
+# ---------------------------------------------------------------------------
+sed_escape_replacement() {
+    printf '%s' "$1" | sed 's/[\\|&]/\\&/g'
+}
+
+# ---------------------------------------------------------------------------
+# Build a single sed expression that substitutes all known tokens.
+# Only tokens that are actually set in config.env are added.
+# ---------------------------------------------------------------------------
+TOKENS=(
+    APP_USER NEXTCLOUD_ADMIN_USER
+    DOMAIN HEADSCALE_HOST NEXTCLOUD_HOST MAGICDNS_BASE_DOMAIN ACME_EMAIL
+    NEXTCLOUD_PHONE_REGION WEB_SUBNET
+    NET_MAC NET_IPV4_CIDR NET_IPV4_ADDR NET_IPV4_GATEWAY NET_IPV4_DNS
+    NET_IPV6_ADDR NET_IPV6_1 NET_IPV6_2 NET_IPV6_3 NET_IPV6_4
+    NET_IPV6_GATEWAY NET_IPV6_DNS
+    APP_PASSWORD_HASH
+)
+
+SED_EXPR=""
+for t in "${TOKENS[@]}"; do
+    [[ -v "$t" ]] || continue
+    val_escaped=$(sed_escape_replacement "${!t}")
+    SED_EXPR="${SED_EXPR}s|@@${t}@@|${val_escaped}|g;"
+done
+
+# ---------------------------------------------------------------------------
+# apply_template TEMPLATE_PATH DEST_PATH [MODE]
+#   Checks hash; if changed (or dest missing) applies substitution and writes.
+#   MODE defaults to 0644. Write is atomic via tmp-file + mv.
+# ---------------------------------------------------------------------------
+apply_template() {
+    local tmpl="$1"
+    local dest="$2"
+    local mode="${3:-0644}"
+
+    local rel="${tmpl#"$TEMPLATES/"}"
+    # Hash key: slashes replaced with underscores for a flat filename.
+    local hash_key="${rel//\//_}"
+    local hash_file="$HASHES/${hash_key}"
+
+    local new_hash
+    new_hash=$(sha256sum "$tmpl" | cut -d' ' -f1)
+
+    local old_hash=""
+    [[ -f "$hash_file" ]] && old_hash=$(cat "$hash_file")
+
+    # Skip if template unchanged AND destination already exists.
+    if [[ "$new_hash" == "$old_hash" && -f "$dest" ]]; then
+        return 0
+    fi
+
+    echo "selfhosted-configure: applying ${rel} -> ${dest}"
+    mkdir -p "$(dirname "$dest")"
+
+    # Apply substitution into a sibling tmp file, then rename atomically.
+    local tmp
+    tmp=$(mktemp "${dest}.tmp.XXXXXX")
+    sed "$SED_EXPR" "$tmpl" > "$tmp"
+    chmod "$mode" "$tmp"
+    mv "$tmp" "$dest"
+
+    # Record the new hash so we skip next boot unless the template changes.
+    echo "$new_hash" > "$hash_file"
+}
+
+# ---------------------------------------------------------------------------
+# Config files (runtime-substituted, read-only-mounted into containers)
+# ---------------------------------------------------------------------------
+apply_template "$TEMPLATES/caddy/Caddyfile"         /etc/caddy/Caddyfile
+apply_template "$TEMPLATES/headscale/config.yaml"   /etc/headscale/config.yaml
+apply_template "$TEMPLATES/headscale/policy.json"   /etc/headscale/policy.json
+
+# ---------------------------------------------------------------------------
+# Quadlets — container / network definitions that contain tokens
+# ---------------------------------------------------------------------------
+apply_template \
+    "$TEMPLATES/containers/systemd/tailscale.container" \
+    /etc/containers/systemd/tailscale.container
+
+apply_template \
+    "$TEMPLATES/containers/systemd/users/1000/nextcloud.container" \
+    /etc/containers/systemd/users/1000/nextcloud.container
+
+apply_template \
+    "$TEMPLATES/containers/systemd/users/1000/collabora.container" \
+    /etc/containers/systemd/users/1000/collabora.container
+
+apply_template \
+    "$TEMPLATES/containers/systemd/users/1000/web.network" \
+    /etc/containers/systemd/users/1000/web.network
+
+# ---------------------------------------------------------------------------
+# User / system declarations (override the image-layer fallbacks)
+# /etc/ shadows /usr/lib/ for both sysusers.d and tmpfiles.d.
+# ---------------------------------------------------------------------------
+apply_template "$TEMPLATES/sysusers.d/app-user.conf"   /etc/sysusers.d/app-user.conf
+apply_template "$TEMPLATES/tmpfiles.d/app-user.conf"   /etc/tmpfiles.d/app-user.conf
+apply_template "$TEMPLATES/tmpfiles.d/tailscale.conf"  /etc/tmpfiles.d/tailscale.conf
+
+# ---------------------------------------------------------------------------
+# Sudoers (0440 root:root, syntax-checked before going live)
+# ---------------------------------------------------------------------------
+SUDOERS_DEST=/etc/sudoers.d/10-appuser
+SUDOERS_TMP=$(mktemp /tmp/sudoers-check.XXXXXX)
+apply_template "$TEMPLATES/sudoers.d/10-appuser" "$SUDOERS_DEST" 0440
+# Verify syntax (visudo -c writes nothing on success; exits non-zero on error).
+cp "$SUDOERS_DEST" "$SUDOERS_TMP"
+if ! visudo -cf "$SUDOERS_TMP" 2>&1; then
+    echo "selfhosted-configure: ERROR — sudoers syntax check failed; removing $SUDOERS_DEST" >&2
+    rm -f "$SUDOERS_DEST" "$SUDOERS_TMP"
+    exit 1
+fi
+rm -f "$SUDOERS_TMP"
+
+# ---------------------------------------------------------------------------
+# Static networking (optional — only written when NET_MAC is set)
+# NM refuses keyfiles that are not mode 0600.
+# ---------------------------------------------------------------------------
+if [[ -n "${NET_MAC:-}" ]]; then
+    NM_DEST=/etc/NetworkManager/system-connections/vps-static.nmconnection
+    apply_template \
+        "$TEMPLATES/network-connections/vps-static.nmconnection" \
+        "$NM_DEST" 0600
+    # Reload NM connections if NetworkManager is running (best-effort).
+    nmcli connection reload 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# SSH authorized key
+# Written directly (not via sed template) to avoid quoting issues.
+# ---------------------------------------------------------------------------
+if [[ -n "${SSH_PUBKEY:-}" && -n "${APP_USER:-}" ]]; then
+    AUTH_KEY_DIR=/etc/ssh/authorized_keys.d
+    mkdir -p "$AUTH_KEY_DIR"
+    chmod 0755 "$AUTH_KEY_DIR"
+    AUTH_KEY_FILE="$AUTH_KEY_DIR/$APP_USER"
+    echo "$SSH_PUBKEY" > "$AUTH_KEY_FILE"
+    chown root:root "$AUTH_KEY_FILE"
+    chmod 0644 "$AUTH_KEY_FILE"
+    echo "selfhosted-configure: wrote SSH authorized key -> ${AUTH_KEY_FILE}"
+fi
+
+# ---------------------------------------------------------------------------
+# subuid / subgid for UID 1000 (app user, regardless of login name)
+# The rootless container stack needs a sub-UID range. Written once; idempotent.
+# ---------------------------------------------------------------------------
+grep -q "^1000:" /etc/subuid 2>/dev/null || echo "1000:100000:65536" >> /etc/subuid
+grep -q "^1000:" /etc/subgid 2>/dev/null || echo "1000:100000:65536" >> /etc/subgid
+
+# ---------------------------------------------------------------------------
+# SELinux: restore context on directories that receive config files at runtime
+# (the fcontext rules are baked by 15-selinux.sh; this re-applies them after
+# configure creates files that weren't there at build time).
+# ---------------------------------------------------------------------------
+restorecon -R /etc/caddy /etc/headscale /etc/nextcloud /etc/anubis \
+             /etc/containers/systemd \
+             /etc/ssh/authorized_keys.d \
+             2>/dev/null || true
+
+echo "selfhosted-configure: done."

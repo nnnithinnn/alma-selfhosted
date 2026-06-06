@@ -1,0 +1,56 @@
+---
+# Self-hosted Renovate runner.
+#
+# Renovate replaces Dependabot for this repo. Its native managers cover, in one tool:
+#   - dockerfile     -> the bootc base `FROM ...@sha256:...` in Containerfile
+#   - quadlet        -> the `Image=` lines in files/services/**/*.container
+#   - github-actions -> `uses:` pins in these workflows
+#
+# Requires a repository secret RENOVATE_TOKEN:
+#   A GitHub Personal Access Token (classic) with scopes:
+#     - `repo`     (read/write content + open PRs)
+#     - `workflow` (REQUIRED so Renovate may also bump pinned actions in workflow files)
+#   Create it at https://github.com/settings/tokens and add via:
+#     gh secret set RENOVATE_TOKEN
+name: Renovate
+
+on:
+  schedule:
+    # Daily at 07:00 UTC (mirrors the old Dependabot cadence).
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: Renovate log level
+        type: choice
+        default: info
+        options:
+          - info
+          - debug
+      dryRun:
+        description: Dry run (no PRs/branches written)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Renovate
+        uses: renovatebot/github-action@693b9ef15eec82123529a37c782242f091365961 # v46.1.14
+        with:
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          RENOVATE_DRY_RUN: ${{ inputs.dryRun && 'full' || '' }}

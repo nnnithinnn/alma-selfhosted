@@ -1,0 +1,18 @@
+# Isolated back-end ("data") container network.
+#
+# The database tier (PostgreSQL + Valkey) lives here and ONLY here. Nextcloud
+# will later join both this network and `web`, bridging the proxy and data tiers
+# without ever exposing the DB/cache to the front door (Caddy is on `web` only).
+#
+# Internal=true: no external connectivity. Postgres and Valkey never need egress;
+# aardvark-dns still resolves container names within the network.
+#
+# No [Install] needed: Quadlet generates data-network.service and pulls it in as
+# a dependency of any container that sets Network=data.network.
+
+[Unit]
+Description=Isolated back-end (data) container network
+
+[Network]
+NetworkName=data
+Internal=true

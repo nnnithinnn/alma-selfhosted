@@ -1,0 +1,54 @@
+# Nextcloud background jobs — cron sidecar (rootless, runs as the app user).
+#
+# Same image as the app server, but its entrypoint is /cron.sh: it runs
+# `php -f /var/www/html/cron.php` every 5 minutes (the recommended production
+# background-job mode). The post-installation hook sets `background_jobs` to
+# `cron`, so Nextcloud expects this sidecar to drive the job queue.
+#
+# It shares the app code via the same `nextcloud-html` volume and only needs the
+# isolated `data` network to reach Postgres/Valkey — it never touches `web`.
+#
+# Image is digest-pinned and auto-bumped by Renovate (kept in lockstep with the
+# main nextcloud.container).
+
+[Unit]
+Description=Nextcloud cron (background jobs)
+Documentation=https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/background_jobs_configuration.html
+After=network-online.target
+Wants=network-online.target
+# The app must be installed/up before background jobs make sense.
+Requires=nextcloud.service
+After=nextcloud.service
+
+[Container]
+Image=public.ecr.aws/docker/library/nextcloud:33.0.5-apache@sha256:4c8bf9140e07ad0293e32500de47a97647677cd4cace358db3ecdc225dff9856
+
+# Back-end only: reaches postgres:5432 / valkey:6379. No web, no PublishPort.
+Network=data.network
+
+# Database + cache credentials (same secrets as the app server). cron.php reads
+# config.php from the shared volume but still needs DB/Redis reachability/creds.
+Environment=POSTGRES_HOST=postgres
+Environment=POSTGRES_DB=nextcloud
+Environment=POSTGRES_USER=nextcloud
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+Environment=REDIS_HOST=valkey
+Environment=REDIS_HOST_PASSWORD_FILE=/run/secrets/valkey_password
+
+Secret=postgres_password,type=mount
+Secret=valkey_password,type=mount
+
+# Shared application code/config + user data (must match the app server's
+# mounts: background jobs such as preview generation touch the data dir).
+Volume=nextcloud-html:/var/www/html
+Volume=/var/mnt/nextcloud:/var/www/html/data
+
+# The official image ships /cron.sh which loops `php cron.php` every 5 min.
+Exec=/cron.sh
+
+[Service]
+Restart=always
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

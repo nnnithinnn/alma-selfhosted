@@ -1,0 +1,55 @@
+# Prune old container image versions from GHCR, keeping only the most recent
+# builds. The publish pipeline (build.yml) creates a multi-arch manifest, so we
+# use a manifest-aware cleaner: keeping the newest tagged builds and removing
+# older ones together with any now-untagged/partial child manifests. The newest
+# build always carries the floating tags (latest, main), so `latest` — which
+# `bootc upgrade` pulls — is inherently protected by keep-n-tagged.
+#
+# Runs right after each successful main build (workflow_run) to clear PR/arch
+# noise (pr-*, *_merge, *-amd64, untagged) within minutes, plus a weekly cron as
+# a safety net. Manual dispatch defaults to a dry run for inspection.
+name: Cleanup image versions
+
+on:
+  workflow_run:
+    workflows: ["Build image"]
+    types:
+      - completed
+    branches:
+      - main
+  schedule:
+    # Sundays at 04:00 UTC.
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting"
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    # On workflow_run, only prune after a build that actually succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Delete old image versions (keep newest 3 builds)
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: alma-selfhosted
+          # Keep the 3 most recent tagged builds (each with all its tags).
+          keep-n-tagged: 3
+          # Remove dangling/untagged and partial multi-arch manifests too.
+          delete-untagged: true
+          delete-partial-images: true
+          # Fail if the registry would be left in an inconsistent state.
+          validate: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          token: ${{ secrets.GITHUB_TOKEN }}

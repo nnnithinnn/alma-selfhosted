@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "labels": ["dependencies"],
+  "quadlet": {
+    "description": "Track Quadlet .container images at both the rootful path and the rootless users/<uid>/ path.",
+    "managerFilePatterns": [
+      "/(^|/)containers/systemd/(users/\\d+/)?[^/]+\\.container$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Group ALL container image and Actions updates into one PR. Headscale excluded — it gets its own PR due to pre-1.0 breaking-change risk.",
+      "matchManagers": ["dockerfile", "quadlet", "github-actions"],
+      "excludePackageNames": ["ghcr.io/juanfont/headscale"],
+      "groupName": "dependencies",
+      "pinDigests": true,
+      "separateMajorMinor": false,
+      "separateMinorPatch": false
+    },
+    {
+      "description": "Headscale: always its own separate PR — pre-1.0, any minor (0.x) bump can carry breaking DB/config changes.",
+      "matchManagers": ["quadlet"],
+      "matchPackageNames": ["ghcr.io/juanfont/headscale"],
+      "separateMinorPatch": true,
+      "automerge": false
+    },
+    {
+      "description": "Postgres: block major version bumps. A major upgrade changes the on-disk data directory format and requires a manual pg_dump/pg_restore migration. Update allowedVersions deliberately when ready.",
+      "matchManagers": ["quadlet"],
+      "matchPackageNames": ["public.ecr.aws/docker/library/postgres"],
+      "allowedVersions": ">=18 <19"
+    }
+  ]
+}

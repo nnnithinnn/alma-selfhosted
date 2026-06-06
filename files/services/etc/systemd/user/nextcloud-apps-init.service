@@ -1,0 +1,27 @@
+# nextcloud-apps-init — install & configure the non-bundled Nextcloud apps.
+#
+# USER unit (runs in the app user's systemd --user manager, started at boot via
+# systemd-linger). Enabled by a baked symlink in
+# /etc/systemd/user/default.target.wants/ because `systemctl --user enable`
+# cannot run for the user at image build time.
+#
+# Idempotent and retryable (no stamp): the helper waits for the app container to
+# finish installing, then installs only the apps that are missing. A transient
+# app-store failure self-heals on the next boot.
+
+[Unit]
+Description=Install & configure non-bundled Nextcloud apps
+Documentation=https://github.com/nnnithinnn/alma-selfhosted
+# Best-effort ordering after the app quadlet; the helper also polls occ itself.
+After=nextcloud.service
+Wants=nextcloud.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nextcloud-apps-init.sh
+# Give the first-boot install + app downloads ample time.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

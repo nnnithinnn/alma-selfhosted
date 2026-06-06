@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# selfhosted — operational CLI for the alma-selfhosted stack.
+#
+# Usage:
+#   selfhosted status    show running containers (rootless + rootful tailscale)
+#   selfhosted upgrade   pull and stage the next OS image (reboots on next boot)
+#
+# Intended to be run as the app user (UID 1000). The `sudo` commands below
+# require only the NOPASSWD entries already in /etc/sudoers.d/10-appuser:
+#   NOPASSWD: /usr/bin/podman ps
+#   NOPASSWD: /usr/bin/bootc
+
+set -euo pipefail
+
+BOLD=$'\e[1m'
+DIM=$'\e[2m'
+RESET=$'\e[0m'
+
+header() { printf '\n%s=== %s ===%s\n' "$BOLD" "$1" "$RESET"; }
+
+cmd_status() {
+    header "Services (rootless)"
+    # Run as the current user — shows this user's rootless podman containers.
+    podman ps \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" \
+        --sort names \
+        2>/dev/null \
+        || echo "${DIM}(no rootless containers or podman unavailable)${RESET}"
+
+    header "Tailscale (rootful)"
+    # sudo /usr/bin/podman ps is NOPASSWD in sudoers.
+    sudo /usr/bin/podman ps \
+        --filter "name=systemd-tailscale" \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" \
+        2>/dev/null \
+        || echo "${DIM}(tailscale container not found)${RESET}"
+
+    printf '\n'
+}
+
+cmd_upgrade() {
+    echo "Pulling latest OS image…"
+    echo "${DIM}(the system will use the new image on next reboot)${RESET}"
+    echo ""
+    # sudo /usr/bin/bootc is NOPASSWD in sudoers.
+    sudo /usr/bin/bootc upgrade
+}
+
+usage() {
+    cat <<EOF
+Usage: selfhosted <command>
+
+Commands:
+  status    Show running containers (rootless services + rootful tailscale)
+  upgrade   Pull and stage the next OS image; applies on next reboot
+
+EOF
+    exit 1
+}
+
+case "${1:-}" in
+    status)  cmd_status  ;;
+    upgrade) cmd_upgrade ;;
+    *)       usage       ;;
+esac

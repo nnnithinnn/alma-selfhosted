@@ -1,0 +1,86 @@
+# The bootc image is GENERIC — no user, SSH key, or domain is baked in.
+# selfhosted-configure.service writes all runtime config from
+# /etc/selfhosted/config.env on first (and every) boot. Anaconda's Users module
+# is disabled because our kickstart is fully unattended (cmdline --non-interactive)
+# and the module would otherwise make "Root password" and "User creation" mandatory
+# interactive spokes, aborting the install. Root stays locked; the app user and
+# SSH key are created by systemd-sysusers + selfhosted-configure on first boot.
+[customizations.installer.modules]
+disable = [
+  "org.fedoraproject.Anaconda.Modules.Users"
+]
+
+[customizations.installer.kickstart]
+contents = """
+# When a custom installer kickstart is supplied, bootc-image-builder ONLY injects
+# the `ostreecontainer` line (and a bootc-switch %post). It adds NO partitioning,
+# install-mode, network, etc. -- those are entirely our responsibility, otherwise
+# Anaconda has no install scheme and drops to the interactive GUI.
+# See: https://github.com/osbuild/bootc-image-builder README (installer options).
+
+# Fully unattended text install; never fall back to the interactive UI.
+text --non-interactive
+
+# Restrict the OS install to the smallest whole disk (the ~60 GB NVMe) so the
+# installer can never touch or wipe the 2 TB Nextcloud data disk. The disk is
+# selected dynamically by size, so this works regardless of device naming
+# (vda/sda/nvme0n1, etc.). The data disk is prepared separately on first boot
+# by nextcloud-data-init.service.
+%pre --erroronfail
+smallest=""
+smallest_size=0
+for d in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+  # Skip virtual/non-installable block devices that also report TYPE=disk
+  # (zram RAM disks, loop/ram devices, optical media). The installer creates a
+  # tiny zram device, which would otherwise be picked as the "smallest disk".
+  case "$d" in
+    zram*|loop*|ram*|sr*|fd*|dm-*|md*) continue ;;
+  esac
+  size=$(blockdev --getsize64 "/dev/$d" 2>/dev/null || echo 0)
+  if [ "$size" -le 0 ]; then continue; fi
+  if [ "$smallest_size" -eq 0 ] || [ "$size" -lt "$smallest_size" ]; then
+    smallest="$d"
+    smallest_size="$size"
+  fi
+done
+echo "ignoredisk --only-use=$smallest" > /tmp/disk-include
+%end
+
+%include /tmp/disk-include
+
+# Partition the selected disk only. clearpart --all is scoped to the non-ignored
+# disk above, so the 2 TB data disk is never wiped. XFS everywhere, no swap (the
+# host uses zram), reqpart provides the ESP + /boot automatically.
+zerombr
+clearpart --all --initlabel --disklabel=gpt
+reqpart --add-boot
+part / --fstype=xfs --grow
+
+# Eject the install ISO and reboot into the freshly installed system, all within
+# the same QEMU process, so the box stays up and SSH-able after `just run-iso`.
+# --eject removes the CD-ROM first so the firmware boots the installed disk
+# instead of looping back into the installer.
+reboot --eject
+
+%post --erroronfail --log=/root/anaconda-post.log
+bootc switch --mutate-in-place --transport registry <IMAGE_SIGNED> <UPDATE_IMAGE_REF>
+
+%end
+
+# Deployment config (config.env) is injected here at ISO build time by the
+# Justfile `_bib` recipe. It writes /etc/selfhosted/config.env on the INSTALLED
+# system; selfhosted-configure.service reads it at every boot to apply token
+# substitution. When no config.env is present at ISO build time (e.g. CI, generic
+# test ISO) this placeholder is dropped and the installed system boots in
+# "unconfigured" mode (configure service exits 0 gracefully until config.env is
+# placed manually). See the Justfile `config` recipe to generate config.env.
+# <SELFHOSTED_CONFIG_POST>
+
+# Pull credentials for `bootc upgrade` from a PRIVATE registry are injected here
+# at ISO build time by the Justfile `_bib` recipe, from a local gitignored auth
+# file. The token is written to /etc/ostree/auth.json on the INSTALLED system
+# only -- it is never committed and never baked into the published container
+# image. If no auth file is present this placeholder is dropped and pulls are
+# anonymous (fine for a public image). See the Justfile `registry_auth` var.
+# <REGISTRY_AUTH_POST>
+"""

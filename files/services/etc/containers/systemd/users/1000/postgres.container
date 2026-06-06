@@ -1,0 +1,63 @@
+# PostgreSQL 18 — Nextcloud's primary database (rootless, runs as the app user).
+#
+# Lives ONLY on the isolated `data` network (Internal=true, no egress). Nextcloud
+# will later join both `web` and `data` to reach it as `postgres:5432`. The DB is
+# never published to the host and never reachable from the front-end/Caddy tier.
+#
+# Credentials come from a rootless podman secret (postgres_password) generated on
+# first boot by db-secrets-init.service. The secret is mounted as a tmpfs file at
+# /run/secrets/postgres_password (labeled container_file_t by podman) and consumed
+# via POSTGRES_PASSWORD_FILE so the password never appears in the unit, env, or
+# process args.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=PostgreSQL 18 (Nextcloud database)
+Documentation=https://www.postgresql.org/docs/18/
+After=network-online.target
+Wants=network-online.target
+# The credential secret must exist before Postgres initialises its data dir.
+Requires=db-secrets-init.service
+After=db-secrets-init.service
+
+[Container]
+Image=public.ecr.aws/docker/library/postgres:18-alpine@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+
+# Isolated back-end network only. No PublishPort: never exposed to the host.
+Network=data.network
+NetworkAlias=postgres
+
+# Bootstrap database/role. POSTGRES_PASSWORD is supplied via *_FILE from the
+# mounted secret, not inline.
+Environment=POSTGRES_DB=nextcloud
+Environment=POSTGRES_USER=nextcloud
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+
+# Mount the rootless secret as a tmpfs file at /run/secrets/postgres_password.
+Secret=postgres_password,type=mount
+
+# Persistent data directory as a rootless named volume under the app user's /var home.
+Volume=postgres-data:/var/lib/postgresql/data
+
+# Liveness: pg_isready against the bootstrapped role/db.
+HealthCmd=pg_isready -U nextcloud -d nextcloud
+HealthStartPeriod=30s
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+
+# Least privilege. NOTE: we do NOT DropCapability=ALL here — the alpine image's
+# entrypoint starts as container-root and su-exec's down to the `postgres` user,
+# which needs CAP_SETUID/CAP_SETGID inside the rootless user namespace. Dropping
+# all caps breaks that privilege drop. Rootless podman already confines the
+# default cap set to the unprivileged userns, so this remains least-privilege.
+# NoNewPrivileges is left at podman's default (off) for the same su-exec reason.
+
+[Service]
+Restart=always
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

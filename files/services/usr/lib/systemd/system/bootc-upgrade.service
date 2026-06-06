@@ -1,0 +1,28 @@
+# bootc-upgrade — atomically upgrade the running OS image (rootful).
+#
+# Runs `bootc upgrade --apply`: fetches the latest image from GHCR and, if a
+# newer image was found, stages it and reboots into it. If no update is
+# available the command exits 0 without rebooting — entirely safe to run daily.
+#
+# Driven by bootc-upgrade.timer (daily at 06:00 UTC, after the Nextcloud
+# maintenance window). On reboot all rootless containers are gracefully stopped
+# by systemd before the new OS image activates, and start fresh on the next
+# boot — no manual intervention required.
+#
+# This is a one-shot rootful unit; lingering user sessions are NOT involved.
+
+[Unit]
+Description=Upgrade bootc OS image
+Documentation=https://containers.github.io/bootc/upgrade.html
+After=network-online.target
+Wants=network-online.target
+# Refuse to run if the system is on battery (VPS: always false, but safe guard).
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bootc upgrade --apply
+# Give the image pull ample time on slow links.
+TimeoutStartSec=600
+# Run as root — bootc upgrade requires root to write the staging area.
+# No Restart: if it fails (e.g. network down) the timer will retry tomorrow.

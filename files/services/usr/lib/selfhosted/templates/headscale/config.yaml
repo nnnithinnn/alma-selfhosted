@@ -1,0 +1,137 @@
+# Headscale — self-hosted Tailscale control server (rootless, user the app user).
+#
+# TLS is terminated by Caddy (@@HEADSCALE_HOST@@ -> reverse_proxy headscale:8080), so
+# headscale itself speaks plain HTTP on :8080 and does NOT manage certificates.
+# The embedded DERP relay rides that same HTTPS path; only its STUN listener
+# (udp/3478) is published directly to the host.
+#
+# State (db.sqlite, auto-generated noise/DERP keys) lives in the rootless named
+# volume `headscale-data` -> /var/lib/headscale. This config file is baked
+# read-only and labeled container_file_t (see files/scripts/15-selinux.sh).
+
+# The URL clients connect to. MUST be https for the embedded DERP server.
+server_url: https://@@HEADSCALE_HOST@@
+
+# Bind on all interfaces inside the container; only Caddy (on web.network)
+# reaches :8080 — it is not published to the host.
+listen_addr: 0.0.0.0:8080
+
+# Keep metrics/debug and gRPC private to the container (not published).
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+# Noise (TS2021) protocol key — auto-generated on first start if missing.
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+# Tailnet address pools (must stay within Tailscale's supported ranges).
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# DERP — NAT-traversal relays presented to clients.
+derp:
+  server:
+    # Run the embedded DERP server (requires server_url to be https).
+    enabled: true
+    region_id: 999
+    region_code: "headscale"
+    region_name: "Headscale Embedded DERP"
+
+    # Only relay for clients of this control server.
+    verify_clients: true
+
+    # STUN listener (udp/3478) — published to the host and opened in firewalld.
+    stun_listen_addr: "0.0.0.0:3478"
+
+    # Auto-generated on first start if missing.
+    private_key_path: /var/lib/headscale/derp_server_private.key
+
+    # Write the embedded region into the DERP map automatically.
+    automatically_add_embedded_derp_region: true
+
+    # Public addresses of this VPS, added to the DERP map for connection
+    # stability (e.g. when used with an exit node and DNS is degraded).
+    ipv4: @@NET_IPV4_ADDR@@
+    ipv6: @@NET_IPV6_ADDR@@
+
+  # Keep Tailscale's public DERP map as a fallback alongside the embedded relay.
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 24h
+
+# Don't phone home for headscale update checks.
+disable_check_updates: true
+
+ephemeral_node_inactivity_timeout: 30m
+
+# SQLite is the upstream-recommended backend (Postgres is discouraged for
+# headscale). The Postgres+Valkey stack is reserved for Nextcloud.
+database:
+  type: sqlite
+  debug: false
+  gorm:
+    prepare_stmt: true
+    parameterized_queries: true
+    skip_err_record_not_found: true
+    slow_threshold: 1000
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+    wal_autocheckpoint: 1000
+
+# TLS is handled by Caddy in front of headscale; leave all of this empty.
+acme_url: https://acme-v02.api.letsencrypt.org/directory
+acme_email: ""
+tls_letsencrypt_hostname: ""
+tls_letsencrypt_cache_dir: /var/lib/headscale/cache
+tls_letsencrypt_challenge_type: HTTP-01
+tls_letsencrypt_listen: ":http"
+tls_cert_path: ""
+tls_key_path: ""
+
+log:
+  level: info
+  format: text
+
+# ACL policy stored in a file. Baked read-only at /etc/headscale/policy.json
+# (HuJSON): defines tag:exit ownership and auto-approves the exit node's route.
+policy:
+  mode: file
+  path: /etc/headscale/policy.json
+
+# MagicDNS. base_domain MUST differ from the server_url domain (@@HEADSCALE_HOST@@).
+dns:
+  magic_dns: true
+  base_domain: @@MAGICDNS_BASE_DOMAIN@@
+  override_local_dns: true
+  nameservers:
+    global:
+      # Quad9 (malware-blocking, privacy-focused).
+      - 9.9.9.9
+      - 149.112.112.112
+      - 2620:fe::fe
+      - 2620:fe::9
+    split: {}
+  search_domains: []
+  extra_records: []
+
+# CLI socket (used via `podman exec`). Placed inside the writable data volume:
+# the container's /var/run (=/run) is not writable by the unprivileged
+# headscale user, so the default /var/run/headscale can't be created.
+unix_socket: /var/lib/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+# Don't ship client logs to Tailscale Inc.
+logtail:
+  enabled: false
+
+randomize_client_port: false
+
+taildrop:
+  enabled: true

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+#
+# tailscale-authkey-init.sh — mint a Headscale pre-auth key for this host's
+# Tailscale exit node and hand it off to the rootful Tailscale container.
+#
+# Runs in the app user's (lingered) user systemd session as a oneshot, AFTER the
+# rootless Headscale container is up. Headscale is rootless (UID 1000), so we
+# drive its CLI via `podman exec` exactly like nextcloud-apps-init drives occ —
+# this avoids any rootful->rootless podman bridge.
+#
+# Output: /var/lib/tailscale-bootstrap/authkey.env, written ATOMICALLY (temp file
+# + rename). That file is:
+#   - the EnvironmentFile of the rootful tailscale.service (TS_AUTHKEY,
+#     TS_HOSTNAME), and
+#   - the trigger watched by tailscale-authkey.path, which starts tailscale once
+#     it appears.
+#
+# IDEMPOTENT: the presence of authkey.env IS the stamp. If it already exists we
+# do nothing (the node is already enrolled / being enrolled). To force a
+# re-bootstrap (e.g. after wiping the headscale-data or tailscale-data volume),
+# delete /var/lib/tailscale-bootstrap/authkey.env and restart this unit.
+#
+# The exit route (0.0.0.0/0 + ::/0) is auto-approved by the baked Headscale
+# policy (autoApprovers.exitNode -> tag:exit); the key below is tagged tag:exit,
+# so no manual `headscale nodes approve-routes` is ever needed.
+#
+# APP_USER and HEADSCALE_HOST come from /etc/selfhosted/config.env, written at
+# install time by the kickstart and made group-readable (GID 1000) by
+# selfhosted-configure.service on every boot.
+set -euo pipefail
+
+log() { echo "tailscale-authkey-init: $*"; }
+
+CONFIG=/etc/selfhosted/config.env
+if [[ ! -f "$CONFIG" ]]; then
+    log "ERROR: $CONFIG not found — system not configured; skipping."
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$CONFIG"
+
+CONTAINER="systemd-headscale"
+USER_NAME="$APP_USER"
+# Tailnet device name = the short label of the control-server host
+# (e.g. vpn.example.com -> vpn).
+TS_HOSTNAME="${HEADSCALE_HOST%%.*}"
+TAG="tag:exit"
+
+BOOTSTRAP_DIR="/var/lib/tailscale-bootstrap"
+OUT="${BOOTSTRAP_DIR}/authkey.env"
+
+# headscale CLI inside the rootless control-server container.
+hs() { podman exec "$CONTAINER" headscale "$@"; }
+
+# --- Already bootstrapped? (authkey.env is the stamp) ------------------------
+if [ -s "$OUT" ]; then
+	log "auth key already present at ${OUT}; nothing to do."
+	exit 0
+fi
+
+# --- Wait for Headscale to answer its CLI (first boot pulls the image) --------
+log "waiting for Headscale to become ready…"
+ready=0
+for _ in $(seq 1 120); do
+	if hs users list >/dev/null 2>&1; then
+		ready=1
+		break
+	fi
+	sleep 10
+done
+if [ "$ready" -ne 1 ]; then
+	log "ERROR: Headscale not ready after timeout; will retry next boot."
+	exit 1
+fi
+
+# --- Ensure the owning user exists (idempotent) ------------------------------
+if hs users list --output json 2>/dev/null | grep -q "\"name\":\"${USER_NAME}\""; then
+	log "headscale user '${USER_NAME}' already exists."
+else
+	log "creating headscale user '${USER_NAME}'…"
+	# Tolerate a race / pre-existing user; we re-check below.
+	hs users create "${USER_NAME}" || log "users create returned non-zero (continuing)."
+fi
+
+# Resolve the numeric user id. Newer headscale releases require --user to be the
+# id, older accept the name; we resolve the id and fall back to the name.
+USER_ID="$(
+	hs users list --output json 2>/dev/null \
+		| tr '{}' '\n' \
+		| grep "\"name\":\"${USER_NAME}\"" \
+		| grep -o '"id":"\?[0-9]\+' \
+		| grep -o '[0-9]\+' \
+		| head -n1 || true
+)"
+if [ -n "${USER_ID}" ]; then
+	log "resolved headscale user id=${USER_ID} for '${USER_NAME}'."
+else
+	log "WARNING: could not resolve numeric user id; will use the name."
+fi
+
+# --- Mint a reusable, tagged pre-auth key ------------------------------------
+# Reusable so the node can re-auth after the state volume is reset; tagged
+# tag:exit so the policy's autoApprovers auto-approves the exit route. The key is
+# given a long expiry; TS_AUTH_ONCE means it is only consumed when not already
+# enrolled.
+mint_key() {
+	local who="$1"
+	hs preauthkeys create --user "${who}" --reusable --expiration 8760h --tags "${TAG}" --output json 2>/dev/null \
+		| tr ',' '\n' | grep '"key"' | grep -o '[a-f0-9]\{48,\}' | head -n1
+}
+
+AUTHKEY=""
+if [ -n "${USER_ID}" ]; then
+	AUTHKEY="$(mint_key "${USER_ID}" || true)"
+fi
+if [ -z "${AUTHKEY}" ]; then
+	# Fall back to the username (older headscale) or plain-text output parsing.
+	AUTHKEY="$(mint_key "${USER_NAME}" || true)"
+fi
+if [ -z "${AUTHKEY}" ]; then
+	# Last resort: non-JSON output (some versions print just the key on stdout).
+	AUTHKEY="$(
+		hs preauthkeys create --user "${USER_ID:-${USER_NAME}}" --reusable --expiration 8760h --tags "${TAG}" 2>/dev/null \
+			| grep -o '[a-f0-9]\{48,\}' | head -n1 || true
+	)"
+fi
+
+if [ -z "${AUTHKEY}" ]; then
+	log "ERROR: failed to mint a pre-auth key; will retry next boot."
+	exit 1
+fi
+
+# --- Write the auth key atomically (temp + rename) ---------------------------
+mkdir -p "${BOOTSTRAP_DIR}"
+TMP="$(mktemp "${BOOTSTRAP_DIR}/authkey.env.XXXXXX")"
+{
+	echo "# Generated by tailscale-authkey-init.sh — do not edit."
+	echo "# Delete this file and restart tailscale-authkey-init to re-enroll."
+	echo "TS_AUTHKEY=${AUTHKEY}"
+	echo "TS_HOSTNAME=${TS_HOSTNAME}"
+} >"${TMP}"
+chmod 0600 "${TMP}"
+mv -f "${TMP}" "${OUT}"
+
+log "wrote ${OUT} (hostname=${TS_HOSTNAME}); tailscale-authkey.path will start the node."

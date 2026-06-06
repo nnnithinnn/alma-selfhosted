@@ -1,0 +1,107 @@
+# Nextcloud — application server (Apache variant, rootless, runs as the app user).
+#
+# Storage:
+#   - User data  -> the dedicated 2 TB disk mounted at /var/mnt/nextcloud,
+#     bind-mounted to /var/www/html/data. Ownership is fixed up once on first
+#     boot by the rootful nextcloud-data-chown.service (www-data uid 33 ->
+#     host 100032 via the app user's subuid base 100000).
+#   - App code / config -> the `nextcloud-html` named volume on the NVMe /var.
+#
+# Networks:
+#   - web  -> reachable by Caddy as `nextcloud:80` (TLS terminates at Caddy).
+#   - data -> reaches Postgres (`postgres:5432`) and Valkey (`valkey:6379`) on
+#     the isolated Internal=true back-end.
+#
+# Credentials come from rootless podman secrets (db-secrets-init.service) and
+# are consumed via *_FILE env vars, so no password is ever baked or inlined.
+#
+# First-run config that has no env var (memcache trio, phone region, etc.) is
+# applied by the baked occ hook at /etc/nextcloud/hooks, mounted read-only into
+# the image's /docker-entrypoint-hooks.d/post-installation/.
+#
+# Registry: public.ecr.aws/docker/library/nextcloud is AWS's official mirror of
+# the Docker Official Image — byte-identical (same digest), but avoids depending
+# on Docker Hub at pull time. Digest-pinned, auto-bumped by Renovate.
+
+[Unit]
+Description=Nextcloud server
+Documentation=https://nextcloud.com/
+After=network-online.target
+Wants=network-online.target
+# DB tier and credentials must be up before Nextcloud installs/connects.
+Requires=db-secrets-init.service postgres.service valkey.service
+After=db-secrets-init.service postgres.service valkey.service
+
+[Container]
+Image=public.ecr.aws/docker/library/nextcloud:33.0.5-apache@sha256:4c8bf9140e07ad0293e32500de47a97647677cd4cace358db3ecdc225dff9856
+
+# Front-end (Caddy) + isolated back-end (Postgres/Valkey). No PublishPort:
+# only Caddy on the `web` network reaches it.
+Network=web.network
+Network=data.network
+NetworkAlias=nextcloud
+
+# --- Database (Postgres) -----------------------------------------------------
+Environment=POSTGRES_HOST=postgres
+Environment=POSTGRES_DB=nextcloud
+Environment=POSTGRES_USER=nextcloud
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+
+# --- Cache / file locking (Valkey, Redis-compatible) -------------------------
+Environment=REDIS_HOST=valkey
+Environment=REDIS_HOST_PASSWORD_FILE=/run/secrets/valkey_password
+
+# --- Initial admin account (first-run install only) --------------------------
+Environment=NEXTCLOUD_ADMIN_USER=@@NEXTCLOUD_ADMIN_USER@@
+Environment=NEXTCLOUD_ADMIN_PASSWORD_FILE=/run/secrets/nextcloud_admin_password
+
+# --- Reverse-proxy / addressing ----------------------------------------------
+Environment=NEXTCLOUD_TRUSTED_DOMAINS=@@NEXTCLOUD_HOST@@
+# Caddy's container IP is allocated from the web network's pinned subnet.
+Environment=TRUSTED_PROXIES=@@WEB_SUBNET@@
+Environment=OVERWRITEPROTOCOL=https
+Environment=OVERWRITEHOST=@@NEXTCLOUD_HOST@@
+Environment=OVERWRITECLIURL=https://@@NEXTCLOUD_HOST@@
+# Caddy already sets X-Forwarded-For; let the image trust it as-is.
+Environment=APACHE_DISABLE_REWRITE_IP=1
+
+# --- PHP tuning (VPS has 6 GiB RAM total) ------------------------------------
+Environment=PHP_MEMORY_LIMIT=768M
+Environment=PHP_UPLOAD_LIMIT=10G
+Environment=PHP_OPCACHE_MEMORY_CONSUMPTION=256
+
+# --- Post-installation hook config (passed as container env vars) -------------
+# NEXTCLOUD_PHONE_REGION cannot be sourced from host config.env inside the
+# container; it is injected here so 10-config.sh can use it as ${NEXTCLOUD_PHONE_REGION:-IN}.
+Environment=NEXTCLOUD_PHONE_REGION=@@NEXTCLOUD_PHONE_REGION@@
+
+# Rootless secrets mounted as tmpfs files (labeled container_file_t by podman).
+Secret=postgres_password,type=mount
+Secret=valkey_password,type=mount
+Secret=nextcloud_admin_password,type=mount
+
+# App code/config on the NVMe; user data on the dedicated 2 TB disk.
+Volume=nextcloud-html:/var/www/html
+Volume=/var/mnt/nextcloud:/var/www/html/data
+
+# Baked first-run occ hook (read-only). NO :Z — rootless can't relabel; the
+# label is applied at deploy time via the /etc/nextcloud fcontext rule.
+Volume=/etc/nextcloud/hooks:/docker-entrypoint-hooks.d:ro
+
+# Liveness: Nextcloud's status endpoint (200 once installed/serving).
+HealthCmd=curl --fail --silent http://localhost/status.php
+HealthStartPeriod=120s
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+
+# Default capability set: as with Postgres/Valkey, the image entrypoint starts
+# as container-root and drops to www-data, so we do NOT DropCapability=ALL.
+
+[Service]
+Restart=always
+# First boot pulls the image and runs the install; allow ample time.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

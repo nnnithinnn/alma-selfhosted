@@ -1,0 +1,57 @@
+# Valkey 8 — Nextcloud's memory cache / file lock backend (rootless, as the app user).
+#
+# Pure cache: no persistence (--save "" --appendonly no). If the container is
+# lost, Nextcloud simply repopulates the cache. Lives ONLY on the isolated `data`
+# network (Internal=true); Nextcloud reaches it as `valkey:6379`. Never published
+# to the host, never reachable from the front-end/Caddy tier.
+#
+# Authentication is enforced (requirepass). The password comes from a rootless
+# podman secret (valkey_password) generated on first boot by db-secrets-init,
+# mounted as a tmpfs file at /run/secrets/valkey_password and read at startup —
+# it never appears in the unit, env, or (persisted) process listing config.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=Valkey 8 (Nextcloud cache)
+Documentation=https://valkey.io/
+After=network-online.target
+Wants=network-online.target
+# The credential secret must exist before Valkey starts.
+Requires=db-secrets-init.service
+After=db-secrets-init.service
+
+[Container]
+Image=ghcr.io/valkey-io/valkey:9-alpine@sha256:11dfc5d3ce9c570a516760935053687aea8e938be51b17cf112f71ab573e6f7b
+
+# Isolated back-end network only. No PublishPort: never exposed to the host.
+Network=data.network
+NetworkAlias=valkey
+
+# Mount the rootless secret as a tmpfs file at /run/secrets/valkey_password.
+Secret=valkey_password,type=mount
+
+# Start valkey-server with auth enforced and persistence fully disabled (pure
+# cache). The password is read from the mounted secret at launch so it is never
+# embedded in the image or unit. `exec` keeps valkey as PID 1 for clean signals.
+Exec=sh -c 'exec valkey-server --requirepass "$(cat /run/secrets/valkey_password)" --save "" --appendonly no'
+
+# Least privilege. As with Postgres, the alpine image su-exec's container-root
+# down to the `valkey` user (needs CAP_SETUID/SETGID in the rootless userns), so
+# we do NOT DropCapability=ALL and leave NoNewPrivileges at podman's default.
+
+# Liveness: PING/PONG via valkey-cli. Password is read from the mounted secret
+# at check time — identical to how the server itself reads it at startup.
+HealthCmd=sh -c 'valkey-cli -a "$(cat /run/secrets/valkey_password)" ping | grep -q PONG'
+HealthStartPeriod=15s
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=3
+
+[Service]
+Restart=always
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
