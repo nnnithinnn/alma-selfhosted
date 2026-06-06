@@ -41,7 +41,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Delete old image versions (keep newest 3 builds)
-        uses: dataaxiom/ghcr-cleanup-action@v1
+        uses: dataaxiom/ghcr-cleanup-action@f092b48ba3b604b2a83690dc4b2bbb3392e1045f # v1
         with:
           packages: alma-selfhosted
           # Keep the 3 most recent tagged builds (each with all its tags).
