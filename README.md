@@ -1,5 +1,7 @@
 # alma-selfhosted
 
+[![Build image](https://github.com/nnnithinnn/alma-selfhosted/actions/workflows/build.yml/badge.svg)](https://github.com/nnnithinnn/alma-selfhosted/actions/workflows/build.yml)
+
 An immutable, image-mode [bootc](https://github.com/containers/bootc) operating
 system — built on **AlmaLinux 10** — for self-hosting a small set of services on
 a single VPS. The whole OS is a signed, version-controlled container image:

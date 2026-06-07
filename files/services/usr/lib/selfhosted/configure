@@ -23,9 +23,35 @@ if [[ ! -f "$CONFIG" ]]; then
     exit 0
 fi
 
-# Load all deployment variables.
-# shellcheck source=/dev/null
-source "$CONFIG"
+# Load all deployment variables safely — no shell evaluation of values.
+# Using `source` would cause $6 in APP_PASSWORD_HASH to expand as a positional
+# parameter, and an unquoted SSH_PUBKEY value to be treated as a command
+# assignment, both aborting the script under set -euo pipefail.
+_load_config() {
+    local file="$1"
+    local line key val
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Strip leading whitespace.
+        line="${line#"${line%%[! ]*}"}"
+        [[ "$line" =~ ^# ]] && continue
+        [[ -z "$line" ]] && continue
+        if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)=(.*) ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            # Strip surrounding single quotes: 'value' → value
+            if [[ "${val:0:1}" == "'" && "${val: -1}" == "'" ]]; then
+                val="${val:1:${#val}-2}"
+            # Strip surrounding double quotes: "value" → value
+            elif [[ "${val:0:1}" == '"' && "${val: -1}" == '"' ]]; then
+                val="${val:1:${#val}-2}"
+            fi
+            # printf -v assigns without any shell interpretation of the value.
+            printf -v "$key" '%s' "$val"
+            export "$key"
+        fi
+    done < "$file"
+}
+_load_config "$CONFIG"
 
 # Make config.env readable by the app user's primary group (GID 1000) so that
 # user-mode services (tailscale-authkey-init, nextcloud-apps-init) can source
