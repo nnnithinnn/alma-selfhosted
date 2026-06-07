@@ -90,10 +90,8 @@ config:
     set -euo pipefail
 
     CONFIG=config.env
-    TEMPLATE=config.env.template
 
-    # ---- Load current values (from config.env if it exists, else template) ----
-    # Template provides defaults; config.env overrides them.
+    # ---- Load current values (from config.env if it exists) ----
     # Uses printf -v to avoid shell interpretation of values containing $ or spaces
     # (e.g. APP_PASSWORD_HASH=$6$..., SSH_PUBKEY=ssh-ed25519 AAAA...).
     _src() {
@@ -120,7 +118,6 @@ config:
             fi
         done < "$f"
     }
-    [ -f "$TEMPLATE" ] && _src "$TEMPLATE" 0
     [ -f "$CONFIG" ]   && _src "$CONFIG"   1
 
     # ---- Helper: prompt with current value as default -------------------------

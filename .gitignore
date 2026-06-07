@@ -2,5 +2,5 @@ cosign.key
 ghcr-auth.json
 output/
 # Personal deployment config — contains domains, IPs, credentials, SSH key.
-# Use config.env.template as a starting point; run `just config` to generate.
+# Run `just config` to generate it interactively.
 config.env
