@@ -34,7 +34,7 @@ iso_config   := "iso.toml"
 # Login name baked into the image (read from config.env's APP_USER if present),
 # used by the `ssh` recipe to log into the test VM. Falls back to "app" when
 # config.env doesn't exist (e.g. CI, or before running `just config`).
-app_user     := `[ -f config.env ] && sed -n 's/^APP_USER=//p' config.env | head -1 || echo app`
+app_user     := `[ -f config.env ] && grep -m1 "^APP_USER=" config.env | sed "s/^APP_USER=//; s/^['\"]//; s/['\"]$//" || echo app`
 
 # Remote image the INSTALLED system should track for `bootc upgrade`. Empty for
 # local testing (the box just boots the locally built image, no remote switch).
@@ -93,22 +93,35 @@ config:
     TEMPLATE=config.env.template
 
     # ---- Load current values (from config.env if it exists, else template) ----
-    # We source the template first for defaults, then override with config.env.
+    # Template provides defaults; config.env overrides them.
+    # Uses printf -v to avoid shell interpretation of values containing $ or spaces
+    # (e.g. APP_PASSWORD_HASH=$6$..., SSH_PUBKEY=ssh-ed25519 AAAA...).
     _src() {
-        local f="$1"
-        # Export every VAR=value line; skip comments and blanks.
+        local f="$1" overwrite="${2:-0}"
+        local line var val
         while IFS= read -r line; do
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "${line// }" ]] && continue
             if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)=(.*) ]]; then
-                # Only set if not already exported (template < config.env priority).
-                local var="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
-                export "$var"="${!var:-$val}"
+                var="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+                # Strip surrounding single quotes: 'value' → value
+                if [[ "${val:0:1}" == "'" && "${val: -1}" == "'" ]]; then
+                    val="${val:1:${#val}-2}"
+                # Strip surrounding double quotes: "value" → value
+                elif [[ "${val:0:1}" == '"' && "${val: -1}" == '"' ]]; then
+                    val="${val:1:${#val}-2}"
+                fi
+                # Template (overwrite=0): only set if not already set.
+                # Config.env (overwrite=1): always set (config wins over template).
+                if [[ "$overwrite" == "1" ]] || [[ ! -v "$var" ]]; then
+                    printf -v "$var" '%s' "$val"
+                    export "$var"
+                fi
             fi
         done < "$f"
     }
-    [ -f "$TEMPLATE" ] && _src "$TEMPLATE"
-    [ -f "$CONFIG" ]   && _src "$CONFIG"
+    [ -f "$TEMPLATE" ] && _src "$TEMPLATE" 0
+    [ -f "$CONFIG" ]   && _src "$CONFIG"   1
 
     # ---- Helper: prompt with current value as default -------------------------
     ask() {
@@ -261,39 +274,39 @@ config:
         printf '%s\n' "# DO NOT COMMIT — this file is gitignored. Edit via \`just config\` or directly."
         printf '%s\n' ""
         printf '%s\n' "# Identity"
-        printf 'APP_USER=%s\n'             "$APP_USER"
-        printf 'NEXTCLOUD_ADMIN_USER=%s\n' "$NEXTCLOUD_ADMIN_USER"
+        printf "APP_USER='%s'\n"             "$APP_USER"
+        printf "NEXTCLOUD_ADMIN_USER='%s'\n" "$NEXTCLOUD_ADMIN_USER"
         printf '%s\n' ""
         printf '%s\n' "# Domains"
-        printf 'DOMAIN=%s\n'              "$DOMAIN"
-        printf 'HEADSCALE_HOST=%s\n'      "$HEADSCALE_HOST"
-        printf 'NEXTCLOUD_HOST=%s\n'      "$NEXTCLOUD_HOST"
-        printf 'MAGICDNS_BASE_DOMAIN=%s\n' "$MAGICDNS_BASE_DOMAIN"
-        printf 'ACME_EMAIL=%s\n'          "$ACME_EMAIL"
+        printf "DOMAIN='%s'\n"              "$DOMAIN"
+        printf "HEADSCALE_HOST='%s'\n"      "$HEADSCALE_HOST"
+        printf "NEXTCLOUD_HOST='%s'\n"      "$NEXTCLOUD_HOST"
+        printf "MAGICDNS_BASE_DOMAIN='%s'\n" "$MAGICDNS_BASE_DOMAIN"
+        printf "ACME_EMAIL='%s'\n"          "$ACME_EMAIL"
         printf '%s\n' ""
         printf '%s\n' "# Nextcloud"
-        printf 'NEXTCLOUD_PHONE_REGION=%s\n' "$NEXTCLOUD_PHONE_REGION"
-        printf 'WEB_SUBNET=%s\n'          "$WEB_SUBNET"
+        printf "NEXTCLOUD_PHONE_REGION='%s'\n" "$NEXTCLOUD_PHONE_REGION"
+        printf "WEB_SUBNET='%s'\n"          "$WEB_SUBNET"
         printf '%s\n' ""
         printf '%s\n' "# Static networking (blank = DHCP)"
-        printf 'NET_MAC=%s\n'             "$NET_MAC"
-        printf 'NET_IPV4_CIDR=%s\n'       "$NET_IPV4_CIDR"
-        printf 'NET_IPV4_ADDR=%s\n'       "$NET_IPV4_ADDR"
-        printf 'NET_IPV4_GATEWAY=%s\n'    "$NET_IPV4_GATEWAY"
-        printf 'NET_IPV4_DNS=%s\n'        "$NET_IPV4_DNS"
-        printf 'NET_IPV6_ADDR=%s\n'       "$NET_IPV6_ADDR"
-        printf 'NET_IPV6_1=%s\n'          "$NET_IPV6_1"
-        printf 'NET_IPV6_2=%s\n'          "$NET_IPV6_2"
-        printf 'NET_IPV6_3=%s\n'          "$NET_IPV6_3"
-        printf 'NET_IPV6_4=%s\n'          "$NET_IPV6_4"
-        printf 'NET_IPV6_GATEWAY=%s\n'    "$NET_IPV6_GATEWAY"
-        printf 'NET_IPV6_DNS=%s\n'        "$NET_IPV6_DNS"
+        printf "NET_MAC='%s'\n"             "$NET_MAC"
+        printf "NET_IPV4_CIDR='%s'\n"       "$NET_IPV4_CIDR"
+        printf "NET_IPV4_ADDR='%s'\n"       "$NET_IPV4_ADDR"
+        printf "NET_IPV4_GATEWAY='%s'\n"    "$NET_IPV4_GATEWAY"
+        printf "NET_IPV4_DNS='%s'\n"        "$NET_IPV4_DNS"
+        printf "NET_IPV6_ADDR='%s'\n"       "$NET_IPV6_ADDR"
+        printf "NET_IPV6_1='%s'\n"          "$NET_IPV6_1"
+        printf "NET_IPV6_2='%s'\n"          "$NET_IPV6_2"
+        printf "NET_IPV6_3='%s'\n"          "$NET_IPV6_3"
+        printf "NET_IPV6_4='%s'\n"          "$NET_IPV6_4"
+        printf "NET_IPV6_GATEWAY='%s'\n"    "$NET_IPV6_GATEWAY"
+        printf "NET_IPV6_DNS='%s'\n"        "$NET_IPV6_DNS"
         printf '%s\n' ""
         printf '%s\n' "# SSH public key"
-        printf 'SSH_PUBKEY=%s\n'          "$SSH_PUBKEY"
+        printf "SSH_PUBKEY='%s'\n"          "$SSH_PUBKEY"
         printf '%s\n' ""
         printf '%s\n' "# SHA-512 password hash (generate with: openssl passwd -6)"
-        printf 'APP_PASSWORD_HASH=%s\n'   "$APP_PASSWORD_HASH"
+        printf "APP_PASSWORD_HASH='%s'\n"   "$APP_PASSWORD_HASH"
     } > "$_tmp"
     mv "$_tmp" "$CONFIG"
     chmod 600 "$CONFIG"
@@ -321,6 +334,15 @@ build:
         -t {{image}} \
         -f {{containerfile}} \
         .
+
+# Run the built container image interactively for quick inspection (rootful,
+# no QEMU). Useful to verify baked files without a full ISO build + VM cycle.
+# Exits clean — no persistent state is written.
+run-cnt:
+    sudo podman run --rm -it --privileged \
+        --security-opt=label=disable \
+        --cap-add=all \
+        {{image}} /bin/bash
 
 # Remove all build outputs (./output, incl. VM scratch) and the Podman build cache.
 clean:
