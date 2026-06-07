@@ -26,8 +26,7 @@ configured by hand on the box.
 
 > Apart from the single Collabora exception, no image is pulled from Docker Hub.
 > App services run as **rootless** Podman Quadlets under a single app user
-> (UID 1000; login name comes from `APP_USER` in
-> [`config.env.template`](config.env.template)). Tailscale is the single rootful
+> (UID 1000; login name set via `APP_USER` in `config.env`). Tailscale is the single rootful
 > exception — an exit node must program the host's routing/NAT, which needs real
 > `NET_ADMIN`.
 
@@ -94,7 +93,6 @@ Notes:
 ## Repository layout
 
 ```
-config.env.template        # template for deployment config (gitignored config.env)
 Containerfile              # bootc image build (FROM + runs build.sh)
 iso.toml                   # kickstart for ISO installs (disk selection, bootc switch)
 Justfile                   # local build/test recipes (just)
@@ -144,7 +142,6 @@ just config    # interactive wizard — prompts for every value, hashes the pass
                # reads the SSH key from a file, optionally writes ghcr-auth.json
 ```
 
-Or copy [`config.env.template`](config.env.template) and fill it in manually.
 `config.env` is gitignored — **never commit it**.
 
 ### Variables
@@ -222,7 +219,7 @@ bootc status          # show current deployment
 - **Add a service:** drop a new Quadlet file into
   `files/services/etc/containers/systemd/users/1000/` (rootless) or
   `files/services/etc/containers/systemd/` (rootful). Add any `@@TOKEN@@` the
-  Quadlet needs to `config.env.template` and to the
+  Quadlet needs to `config.env` (via `just config`) and to the
   `files/services/usr/lib/selfhosted/templates/` tree, then register the new
   template in `files/services/usr/lib/selfhosted/configure`.
 - **Add a build step:** create `files/scripts/XX-name.sh` (run in numeric order).
