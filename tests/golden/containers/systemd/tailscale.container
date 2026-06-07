@@ -1,0 +1,86 @@
+# Tailscale — tailnet member + EXIT NODE for this host (rootful Quadlet).
+#
+# This is the SINGLE, documented rootful exception in the stack: an exit node
+# must program the host's routing/NAT, which needs real NET_ADMIN and the host
+# network namespace — impossible from the rootless app-user tier. Everything
+# else (Caddy, Headscale, Nextcloud, DB) stays rootless.
+#
+# It enrolls against the self-hosted Headscale control server at
+# https://vpn.test.example.com (reached via Caddy, which terminates TLS). Tailscale
+# validates that certificate, so the control server MUST present a publicly
+# trusted cert — i.e. Caddy on the LE *production* CA (see files/services/etc/
+# caddy/Caddyfile). Staging certs are untrusted and enrollment will fail.
+#
+# ENROLLMENT (fully automated, no manual step):
+#   1. tailscale-authkey-init.service (USER unit) waits for Headscale, ensures
+#      the headscale user testuser exists, and mints a reusable pre-auth key
+#      tagged `tag:exit`, writing TS_AUTHKEY + TS_HOSTNAME to
+#      /var/lib/tailscale-bootstrap/authkey.env.
+#   2. tailscale-authkey.path (rootful) watches for that file and starts THIS
+#      unit once it appears (this unit has no [Install]; the path is its trigger).
+#   3. The baked Headscale policy auto-approves the exit route for `tag:exit`
+#      (autoApprovers), so 0.0.0.0/0 + ::/0 need no manual `approve-routes`.
+#
+# Host networking is used (standard for exit nodes): tailscale sees the real
+# interfaces, binds 41641/udp directly on the host (opened in firewalld by
+# files/scripts/30-firewall.sh) and NATs tailnet egress. IP forwarding is
+# enabled host-wide by files/services/usr/lib/sysctl.d/90-ip-forward.conf.
+#
+# Image is digest-pinned and auto-bumped by Renovate (.github/renovate.json).
+
+[Unit]
+Description=Tailscale node (exit node)
+Documentation=https://tailscale.com/
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/tailscale/tailscale:v1.98.4@sha256:25cde9ad76020b0e29229136d0c38b5962e9a0e1774ffac9b0df68e4a37d6cf0
+
+# Exit node = host network namespace + kernel networking (TS_USERSPACE=false),
+# which needs the TUN device and NET_ADMIN/NET_RAW. 41641/udp binds on the host.
+Network=host
+AddDevice=/dev/net/tun
+AddCapability=NET_ADMIN
+AddCapability=NET_RAW
+
+# Persistent node identity/state (rootful named volume under /var). Without a
+# persistent state dir the node re-registers on every restart.
+Volume=tailscale-data:/var/lib/tailscale
+Environment=TS_STATE_DIR=/var/lib/tailscale
+
+# Kernel networking (required for a performant exit node).
+Environment=TS_USERSPACE=false
+
+# Only authenticate if not already enrolled (state volume persists identity).
+Environment=TS_AUTH_ONCE=true
+
+# Do NOT accept MagicDNS: with host networking that would overwrite the server's
+# /etc/resolv.conf. The host keeps its own resolvers.
+Environment=TS_ACCEPT_DNS=false
+
+# Advertise as an exit node and point at the self-hosted control server.
+Environment=TS_EXTRA_ARGS=--advertise-exit-node --login-server=https://vpn.test.example.com
+
+# Liveness: tailscale CLI reports connected state. Uses the Unix socket that
+# the daemon creates inside the state volume. Large start period covers the
+# first-boot enrollment flow (authkey-init -> enroll -> route approval).
+HealthCmd=tailscale status
+HealthStartPeriod=180s
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+
+[Service]
+# TS_AUTHKEY (and TS_HOSTNAME) come from the bootstrap unit's output. This file
+# is produced by tailscale-authkey-init.service; tailscale-authkey.path won't
+# start this unit until it exists, so the EnvironmentFile is always present here.
+EnvironmentFile=/var/lib/tailscale-bootstrap/authkey.env
+Restart=always
+RestartSec=10
+# First boot pulls the image from the registry; allow time for that.
+TimeoutStartSec=300
+
+# NOTE: intentionally NO [Install] section. This unit is started by
+# tailscale-authkey.path once the bootstrap authkey file exists, not directly at
+# boot (it can't enroll before the key is minted).

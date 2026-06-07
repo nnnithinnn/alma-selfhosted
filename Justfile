@@ -344,6 +344,26 @@ run-cnt:
         --cap-add=all \
         {{image}} /bin/bash
 
+# Regenerate tests/golden/ from the current image + tests/config.env.test.
+# Run `just build` first, then commit the diff to tests/golden/ after this completes.
+# Golden files are the expected output of `configure` for the committed test config;
+# CI diffs every rendered file against them on every PR.
+update-golden:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Regenerating tests/golden/ from image {{image}} ..."
+    mkdir -p tests/golden
+    sudo podman run --rm \
+        -v "$(pwd)/tests/config.env.test:/tmp/config.env.test:ro" \
+        -v "$(pwd)/tests/golden:/golden" \
+        -v "$(pwd)/tests/configure-test.sh:/configure-test.sh:ro" \
+        {{image}} \
+        bash -c 'COLLECT=1 GOLDEN_DIR=/golden CONFIG_SRC=/tmp/config.env.test /bin/bash /configure-test.sh'
+    # The container ran as root; hand ownership back to the current user.
+    sudo chown -R "$(id -u):$(id -g)" tests/golden/
+    echo ""
+    echo "Golden files written to tests/golden/ — inspect the diff and commit."
+
 # Remove all build outputs (./output, incl. VM scratch) and the Podman build cache.
 clean:
     # Stop any running test VM first so it releases open files under ./output.
