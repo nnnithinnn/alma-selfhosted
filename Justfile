@@ -364,6 +364,17 @@ update-golden:
     echo ""
     echo "Golden files written to tests/golden/ — inspect the diff and commit."
 
+# Run the golden-file configure tests against the locally built image.
+# Equivalent to what CI runs in the 'Test configure' step.
+# Run `just build` first if the image is out of date.
+test:
+    sudo podman run --rm \
+        -v "$(pwd)/tests/config.env.test:/tmp/config.env.test:ro" \
+        -v "$(pwd)/tests/golden:/golden:ro" \
+        -v "$(pwd)/tests/configure-test.sh:/configure-test.sh:ro" \
+        {{image}} \
+        bash -c 'CONFIG_SRC=/tmp/config.env.test GOLDEN_DIR=/golden /bin/bash /configure-test.sh'
+
 # Remove all build outputs (./output, incl. VM scratch) and the Podman build cache.
 clean:
     # Stop any running test VM first so it releases open files under ./output.
