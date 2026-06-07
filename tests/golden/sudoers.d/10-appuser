@@ -1,0 +1,9 @@
+# Sudoers for the self-hosted app user.
+# This file is written at runtime by selfhosted-configure from a template;
+# @@TOKEN@@ placeholders are substituted from /etc/selfhosted/config.env.
+#
+# NOPASSWD is scoped to the two commands the `selfhosted` CLI needs without
+# a password prompt: reading container state and triggering OS upgrades.
+# All other root operations require the account password (set via just config).
+testuser ALL=(root) NOPASSWD: /usr/bin/podman ps, /usr/bin/bootc
+testuser ALL=(ALL) ALL

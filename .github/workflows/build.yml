@@ -66,6 +66,9 @@ jobs:
       IMAGE_REF: "${{ needs.build-image.outputs.image-ref }}@${{ needs.build-image.outputs.digest }}"
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
       - name: Login to Container Registry
         run: echo ${{ secrets.GITHUB_TOKEN }} | podman login -u ${{ needs.set-env.outputs.REGISTRY_USER }} --password-stdin ${{ needs.set-env.outputs.REGISTRY }}
 
@@ -137,6 +140,15 @@ jobs:
             -v /tmp/test.sh:/tmp/test.sh \
             ${{ env.IMAGE_REF }} \
             /bin/bash /tmp/test.sh
+
+      - name: Test configure (golden-file diff)
+        run: |
+          podman run --rm \
+            -v ${{ github.workspace }}/tests/config.env.test:/tmp/config.env.test:ro \
+            -v ${{ github.workspace }}/tests/golden:/golden:ro \
+            -v ${{ github.workspace }}/tests/configure-test.sh:/configure-test.sh:ro \
+            ${{ env.IMAGE_REF }} \
+            bash -c 'CONFIG_SRC=/tmp/config.env.test GOLDEN_DIR=/golden /bin/bash /configure-test.sh'
 
   promote-image:
     name: Promote image

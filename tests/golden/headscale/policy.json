@@ -1,0 +1,32 @@
+// Headscale ACL policy (HuJSON) — baked read-only at /etc/headscale/policy.json.
+//
+// Referenced by config.yaml (policy.mode=file, policy.path) and mounted into the
+// rootless headscale container by headscale.container. The /etc/headscale tree
+// is labeled container_file_t via files/scripts/15-selinux.sh, so the container
+// can read it without a :Z relabel.
+//
+// Headscale parses HuJSON (JSON with // and /* */ comments and trailing commas).
+{
+  // Who may apply tag:exit. The Tailscale exit node enrolls with a pre-auth key
+  // tagged tag:exit, owned by the app user testuser.
+  "tagOwners": {
+    "tag:exit": ["testuser"],
+  },
+
+  // Auto-approve the exit route (0.0.0.0/0 + ::/0) for any node tagged tag:exit,
+  // so no manual `headscale nodes approve-routes` is ever required.
+  "autoApprovers": {
+    "exitNode": ["tag:exit"],
+  },
+
+  // Single-tenant tailnet: allow all members to reach everything. This permissive
+  // base is REQUIRED — once policy.path is set, Headscale stops implicitly
+  // allowing all traffic and enforces these rules instead.
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["*"],
+      "dst": ["*:*"],
+    },
+  ],
+}

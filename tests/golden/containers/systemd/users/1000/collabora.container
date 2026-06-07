@@ -1,0 +1,68 @@
+# Collabora Online (CODE) — in-browser office / document editing (rootless, app user).
+#
+# Backend for the Nextcloud `richdocuments` (Nextcloud Office) app: it renders and
+# collaboratively edits documents (ODF, OOXML, PDF) in the browser via the WOPI
+# protocol. It is the "Collabora Online Development Edition" build — free, with a
+# soft 20-connection / 10-document limit, which is ample for a personal instance.
+#
+# SAME-DOMAIN deployment: there is NO separate office subdomain. Collabora is
+# served under the Nextcloud host (cloud.test.example.com) — Caddy routes the COOL
+# paths (/browser, /cool, /hosting/discovery, /hosting/capabilities) to this
+# container on :9980, and everything else to Nextcloud. So richdocuments'
+# wopi_url is just https://cloud.test.example.com (see nextcloud-apps-init.sh).
+#
+# DOCKER HUB EXCEPTION: the rest of the stack deliberately avoids docker.io, but
+# Collabora publishes CODE only to Docker Hub (and its own registry). We pull it
+# anonymously and DIGEST-PIN it (auto-bumped by Renovate, .github/renovate.json),
+# which is the same supply-chain guarantee as a mirror — the bytes can't change
+# under a fixed digest. This is the single, documented Docker Hub dependency.
+#
+# Networks: `web` only — Caddy reaches it as `collabora:9980`. Collabora calls
+# back to Nextcloud's WOPI endpoint over the PUBLIC URL (hairpins through Caddy),
+# so it needs no `data` access. Never published to the host.
+
+[Unit]
+Description=Collabora Online (CODE) — Nextcloud Office backend
+Documentation=https://sdk.collaboraonline.com/docs/installation/Proxy_settings.html
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/collabora/code:26.04.1.3.1@sha256:e42a50e71d5085a2602eed115bd820b87e713e703e87efab91543440efb3698d
+
+# Front-end network only (Caddy reaches :9980). No PublishPort.
+Network=web.network
+NetworkAlias=collabora
+
+# Public name Collabora advertises (it sits behind Caddy on the SAME host).
+Environment=server_name=cloud.test.example.com
+
+# WOPI host allowlist: the Nextcloud instance allowed to use this office backend.
+# Collabora treats the value as a regex, so the dots in the host match literally
+# enough for a single FQDN (a stray wildcard match here is harmless).
+Environment=aliasgroup1=https://cloud.test.example.com:443
+
+# - ssl.enable=false + ssl.termination=true: TLS is terminated at Caddy; Collabora
+#   speaks plain HTTP on :9980 but still emits https:// URLs.
+# - security.capabilities=false: the rootless user namespace can't grant the
+#   Linux capabilities Collabora's sandbox would otherwise request, so disable it.
+Environment=extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:security.capabilities=false
+
+# Memory cap: CODE can grow to 1–2 GB on active sessions. Capping at 1.5 GB
+# prevents OOM from cascading onto Postgres or Nextcloud on this 6 GB VPS.
+PodmanArgs=--memory=1536m
+
+# Liveness: the WOPI discovery XML is served once coolwsd is ready.
+HealthCmd=curl --fail --silent http://localhost:9980/hosting/discovery
+HealthStartPeriod=60s
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+
+[Service]
+Restart=always
+# First boot pulls the (large) image from Docker Hub; allow ample time.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
