@@ -36,7 +36,7 @@ jobs:
 
   build-image:
     name: Build image
-    uses: AlmaLinux/atomic-ci/.github/workflows/build-image.yml@v11
+    uses: AlmaLinux/atomic-ci/.github/workflows/build-image.yml@2de748e88e7f1a3c57c1045a3ae67c059bbc8ffd # v11
     needs: set-env
     with:
       image-description: "Headless AlmaLinux 10 bootc host for self-hosted services"
@@ -154,7 +154,7 @@ jobs:
     name: Promote image
     needs: [set-env, build-image, test-image]
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    uses: AlmaLinux/atomic-ci/.github/workflows/retag-image.yml@v11
+    uses: AlmaLinux/atomic-ci/.github/workflows/retag-image.yml@2de748e88e7f1a3c57c1045a3ae67c059bbc8ffd # v11
     with:
       image: ${{ needs.build-image.outputs.image-ref }}
       digest: ${{ needs.build-image.outputs.digest }}

@@ -33,7 +33,7 @@ Requires=db-secrets-init.service postgres.service valkey.service
 After=db-secrets-init.service postgres.service valkey.service
 
 [Container]
-Image=public.ecr.aws/docker/library/nextcloud:33.0.5-apache@sha256:4c8bf9140e07ad0293e32500de47a97647677cd4cace358db3ecdc225dff9856
+Image=public.ecr.aws/docker/library/nextcloud:33.0.5-apache@sha256:56bdc45109067500fd0832fa64832b7c77a167d9394cbf5f0f4b59740b94194d
 
 # Front-end (Caddy) + isolated back-end (Postgres/Valkey). No PublishPort:
 # only Caddy on the `web` network reaches it.
