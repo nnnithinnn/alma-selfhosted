@@ -18,7 +18,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=ghcr.io/juanfont/headscale:v0.29.1@sha256:8453e47ea6bf69cd2c550d230ad23f4cf9d0e7daa31c652da3cbb88dca059c62
+Image=ghcr.io/juanfont/headscale:v0.29.2@sha256:d337f1be4a9155b330aa9077bf6c82d24ff0581b8e69390ebc6d7c623bb339ce
 # The image entrypoint is `headscale`; `serve` starts the control server.
 Exec=serve
 
